@@ -1,21 +1,8 @@
 import { activeCheckpoints, buildKnowledgeSummary } from "./knowledge/checkpoints";
+import { getEffectiveRisk } from "./metrics";
+import { QUALITATIVE_FIELDS } from "./notes";
 import type { FacilRow } from "./types";
 import type { ChatMessage } from "./llm";
-
-const QUALITATIVE_FIELDS: Array<{ key: keyof FacilRow; label: string }> = [
-  { key: "kendalaKomunikasi", label: "Kendala Komunikasi" },
-  { key: "kendalaPanlakFormatTemplate", label: "Kendala Panlak/Format/Template" },
-  { key: "kendalaMendapatkanPerencana", label: "Kendala Mendapatkan Perencana" },
-  { key: "kendalaVerifikasiBiodata", label: "Kendala Verifikasi Biodata" },
-  { key: "kendalaUpdateDapodik", label: "Kendala Update Dapodik" },
-  { key: "kendalaPenyusunanDokAdmin", label: "Kendala Penyusunan Dok. Admin" },
-  { key: "kendalaVerifikasiDokAdmin", label: "Kendala Verifikasi Dok. Admin" },
-  { key: "kendalaPenyusunanDokTeknis", label: "Kendala Penyusunan Dok. Teknis" },
-  { key: "kendalaVerifikasiDokTeknis", label: "Kendala Verifikasi Dok. Teknis" },
-  { key: "kendalaPenyepakatanRAB", label: "Kendala Penyepakatan RAB" },
-  { key: "analisis", label: "Analisis (admin)" },
-  { key: "catatanAdmin", label: "Catatan Admin" },
-];
 
 const SYSTEM_PROMPT = `Anda adalah asisten analis untuk program revitalisasi sekolah. Tugas Anda menganalisis data
 kinerja fasilitator lapangan berdasarkan Lembar Kerja (LK) dan aplikasi monitoring ("Aplikasi Revit"),
@@ -23,16 +10,23 @@ lalu memberi kesimpulan yang jujur dan actionable kepada admin program.
 
 Aturan penting:
 - Data berupa persentase "masalah" (mis. "% Sekolah Belum Login Aplikasi") - semakin TINGGI nilainya semakin BURUK.
-- "Nilai Risiko" adalah skor terbobot 0-100% (semakin tinggi = semakin berisiko), dihitung dari checkpoint-checkpoint yang diberikan.
+- "Nilai Risiko" adalah skor terbobot 0-100% (semakin tinggi = semakin berisiko), dihitung dari checkpoint-checkpoint yang diberikan. Kalau ditandai "(estimasi)", berarti kolom itu kosong di sheet dan dihitung otomatis oleh aplikasi dari bobot checkpoint - sebut ke pembaca bahwa angka itu estimasi, bukan hasil resmi sheet.
 - JANGAN menyalahkan fasilitator untuk checkpoint yang belum berlaku pada hari tsb (lihat catatan "belum relevan" di data).
 - Jika ada "Analisis" atau "Catatan Admin" yang sudah ditulis manusia, jadikan itu konteks tambahan - jangan diulang mentah-mentah, tapi boleh dikonfirmasi/dipertajam.
 - Perhatikan pola anomali: data yang sama sekali tidak berubah selama beberapa hari berturut-turut sering menandakan fasilitator berhenti mengisi laporan, bukan kondisi yang benar-benar stabil.
+- Kolom bersumber "LK Fasil" yang terbaca 0% masalah atau "Sudah" TIDAK OTOMATIS berarti kondisinya baik - itu bisa jadi cuma default kosong di sheet kalau fasilitator belum login LK sama sekali, atau catatan "Kendala..." terkait menyebut "belum diisi". Selalu silangkan dengan status "Fasil Belum Login LK" dan catatan Kendala terkait sebelum menyimpulkan sesuatu "aman" - jangan tertipu angka 0% yang sebenarnya berarti "belum ada data", bukan "sudah terverifikasi baik".
 - Jawab dalam Bahasa Indonesia, ringkas, terstruktur, dan langsung actionable. Gunakan format markdown dengan heading pendek.`;
 
 function formatCell(v: FacilRow[keyof FacilRow]): string {
   if (v == null) return "-";
   if (typeof v === "number") return `${v}%`;
   return String(v);
+}
+
+function formatRisk(row: FacilRow): string {
+  const risk = getEffectiveRisk(row);
+  if (risk.value == null) return "-";
+  return `${risk.value.toFixed(1)}%${risk.estimated ? " (estimasi)" : ""}`;
 }
 
 function buildHistoryTable(history: FacilRow[], maxDay: number): string {
@@ -44,7 +38,7 @@ function buildHistoryTable(history: FacilRow[], maxDay: number): string {
   const sep = uniqueCols.map(() => "---").join(" | ");
   const rows = history.map((row) => {
     const cells = uniqueCols.map((c) => (row.hari >= (groups.find((g) => g.indicators.some((i) => i.kolom === c))?.activeFromDay ?? 0) ? formatCell(row[c]) : "(belum berlaku)"));
-    return [`Hari ${row.hari}`, formatCell(row.nilaiRisiko), ...cells].join(" | ");
+    return [`Hari ${row.hari}`, formatRisk(row), ...cells].join(" | ");
   });
 
   return [header, `--- | --- | ${sep}`, ...rows].join("\n");
@@ -96,13 +90,13 @@ Tolong berikan analisis dengan struktur berikut:
 export function buildDailySummaryMessages(dayRows: FacilRow[], hari: number): ChatMessage[] {
   if (dayRows.length === 0) throw new Error("Tidak ada data untuk hari ini.");
   const sorted = [...dayRows].sort((a, b) => {
-    const av = typeof a.nilaiRisiko === "number" ? a.nilaiRisiko : -1;
-    const bv = typeof b.nilaiRisiko === "number" ? b.nilaiRisiko : -1;
+    const av = getEffectiveRisk(a).value ?? -1;
+    const bv = getEffectiveRisk(b).value ?? -1;
     return bv - av;
   });
 
   const table = sorted
-    .map((r) => `- ${r.namaFasil} (${r.kodeFasil}, koor: ${r.namaKoor}) - Nilai Risiko: ${formatCell(r.nilaiRisiko)}, Belum Login LK: ${formatCell(r.fasilBelumLoginLK)}, Belum Login Aplikasi: ${formatCell(r.pctSekolahBelumLoginAplikasi)}`)
+    .map((r) => `- ${r.namaFasil} (${r.kodeFasil}, koor: ${r.namaKoor}) - Nilai Risiko: ${formatRisk(r)}, Belum Login LK: ${formatCell(r.fasilBelumLoginLK)}, Belum Login Aplikasi: ${formatCell(r.pctSekolahBelumLoginAplikasi)}`)
     .join("\n");
 
   const notes = dayRows

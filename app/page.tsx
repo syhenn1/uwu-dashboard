@@ -1,7 +1,9 @@
-import { getFacilRows, isUsingSampleData } from "@/lib/sheet";
+import { getFacilRows, getTodayHari, isUsingSampleData } from "@/lib/sheet";
 import { getAvailableDays, getRowsForDay, summarizeDay } from "@/lib/metrics";
+import { getCheckpointCompliance, countNonCompliant } from "@/lib/compliance";
 import { DaySelector } from "@/components/DaySelector";
 import { SummaryCards } from "@/components/SummaryCards";
+import { StatTile } from "@/components/StatTile";
 import { FacilitatorTable } from "@/components/FacilitatorTable";
 import { AnalysisPanel } from "@/components/AnalysisPanel";
 
@@ -18,6 +20,12 @@ export default async function DashboardPage({
   const dayRows = getRowsForDay(rows, hari);
   const summary = summarizeDay(dayRows);
 
+  const todayHari = await getTodayHari();
+  const complianceCounts = new Map(
+    dayRows.map((r) => [r.kodeFasil, countNonCompliant(getCheckpointCompliance(r, todayHari))])
+  );
+  const nonCompliantFacilCount = [...complianceCounts.values()].filter((c) => c > 0).length;
+
   return (
     <div className="flex flex-col gap-6">
       {isUsingSampleData() && (
@@ -32,8 +40,15 @@ export default async function DashboardPage({
         <p className="text-sm text-ink-secondary">Pantau kinerja fasilitator per hari selama siklus pendampingan 14 hari.</p>
       </div>
 
-      <DaySelector days={days} current={hari} />
+      <DaySelector days={days} current={hari} todayHari={todayHari} />
       <SummaryCards summary={summary} />
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatTile
+          label={`Checkpoint Belum Sesuai (per Hari ${todayHari}, hari ini)`}
+          value={String(nonCompliantFacilCount)}
+          tone={nonCompliantFacilCount > 0 ? "critical" : "default"}
+        />
+      </div>
 
       <AnalysisPanel
         endpoint="/api/analyze/summary"
@@ -42,7 +57,7 @@ export default async function DashboardPage({
         buttonLabel="Buat Ringkasan AI"
       />
 
-      <FacilitatorTable rows={dayRows} hari={hari} />
+      <FacilitatorTable rows={dayRows} hari={hari} complianceCounts={complianceCounts} />
     </div>
   );
 }

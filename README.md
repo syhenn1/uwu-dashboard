@@ -19,11 +19,11 @@ diambil dari data yang diberikan saat perancangan).
 
 Salin `.env.local.example` menjadi `.env.local` lalu isi:
 
-- `SHEET_CSV_URL` — URL export-CSV dari tab **"Level Fasil"** di Google Sheet asli (sheet
-  harus share "Anyone with the link" bisa view). Buka tab "Level Fasil"-nya dulu supaya
-  aktif, ambil `gid` dari address bar (`#gid=...`), lalu susun:
-  `https://docs.google.com/spreadsheets/d/<SPREADSHEET_ID>/export?format=csv&gid=<SHEET_GID>`.
-  Kosongkan untuk tetap memakai data contoh.
+- `SHEET_CSV_URL` — URL tab **"Level Fasil"** di Google Sheet asli (sheet harus share
+  "Anyone with the link" bisa view). Buka tab "Level Fasil"-nya dulu supaya aktif, lalu
+  copy URL dari address bar apa adanya (`.../edit?gid=...` juga boleh — otomatis
+  dikonversi ke endpoint export CSV oleh `lib/sheet.ts`). Kosongkan untuk tetap memakai
+  data contoh.
 - `HF_TOKEN` — token API Hugging Face (buat di huggingface.co/settings/tokens). Wajib diisi
   supaya tombol "Buat Analisis AI" / "Buat Ringkasan AI" berfungsi.
 - `HF_MODEL` — model Llama yang dipanggil (default `meta-llama/Llama-3.3-70B-Instruct`).

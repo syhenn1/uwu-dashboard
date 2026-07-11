@@ -20,9 +20,15 @@ export default function RootLayout({
             <Link href="/" className="text-sm font-semibold">
               Monitoring Fasilitator
             </Link>
-            <nav className="text-sm text-ink-secondary">
+            <nav className="flex gap-4 text-sm text-ink-secondary">
               <Link href="/" className="hover:text-ink-primary">
                 Dashboard
+              </Link>
+              <Link href="/analisis-massal" className="hover:text-ink-primary">
+                Analisis Massal
+              </Link>
+              <Link href="/anomali" className="hover:text-ink-primary">
+                Anomali
               </Link>
             </nav>
           </div>

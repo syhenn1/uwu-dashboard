@@ -5,6 +5,11 @@ export interface CheckpointIndicator {
   definisi: string;
   sumberData: CheckpointSourceData;
   bobot: number;
+  /** "higherIsWorse" (default) untuk kolom "% masalah" - semakin tinggi semakin
+   * berisiko. "higherIsBetter" untuk kolom seperti "Min (% Dok. ... Terunggah)"
+   * yang mengukur kelengkapan - semakin tinggi semakin baik, jadi kontribusi
+   * risikonya dibalik (100 - nilai) saat dihitung. */
+  polarity?: "higherIsWorse" | "higherIsBetter";
 }
 
 export interface CheckpointGroup {
@@ -110,7 +115,7 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     indicators: [
       { kolom: "pctDokAdminTerunggahLengkap", definisi: "% sekolah dengan dokumen admin terunggah 100% (lengkap).", sumberData: "Aplikasi Revit", bobot: 0 },
       { kolom: "rataDokAdminTerunggah", definisi: "Rata-rata % dokumen admin terunggah di aplikasi.", sumberData: "Aplikasi Revit", bobot: 0 },
-      { kolom: "minDokAdminTerunggah", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4 },
+      { kolom: "minDokAdminTerunggah", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
       { kolom: "pctDokAdminTerunggahDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen admin terunggah < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
     ],
   },
@@ -123,7 +128,7 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     indicators: [
       { kolom: "pctDokAdminTerverifikasi", definisi: "% sekolah dengan dokumen admin terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0 },
       { kolom: "rataDokAdminTerverifikasi", definisi: "Rata-rata % dokumen admin terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0 },
-      { kolom: "minDokAdminTerverifikasi", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4 },
+      { kolom: "minDokAdminTerverifikasi", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
       { kolom: "pctDokAdminTerverifikasiDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen admin terverifikasi < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
     ],
   },
@@ -136,7 +141,7 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     indicators: [
       { kolom: "pctDokAdminSesuai", definisi: "% sekolah dengan dokumen admin sesuai.", sumberData: "Aplikasi Revit", bobot: 0 },
       { kolom: "rataDokAdminSesuai", definisi: "Rata-rata % dokumen admin sesuai.", sumberData: "Aplikasi Revit", bobot: 0 },
-      { kolom: "minDokAdminSesuai", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4 },
+      { kolom: "minDokAdminSesuai", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
       { kolom: "pctDokAdminSesuaiDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen admin sesuai < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
     ],
   },
@@ -149,7 +154,7 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     indicators: [
       { kolom: "pctDokTeknisTerunggahLengkap", definisi: "% sekolah dengan dokumen teknis terunggah 100% (lengkap).", sumberData: "Aplikasi Revit", bobot: 0 },
       { kolom: "rataDokTeknisTerunggah", definisi: "Rata-rata % dokumen teknis terunggah.", sumberData: "Aplikasi Revit", bobot: 0 },
-      { kolom: "minDokTeknisTerunggah", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4 },
+      { kolom: "minDokTeknisTerunggah", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
       { kolom: "pctDokTeknisTerunggahDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen teknis terunggah < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
     ],
   },
@@ -162,7 +167,7 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     indicators: [
       { kolom: "pctDokTeknisTerverifikasi", definisi: "% sekolah dengan dokumen teknis terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0 },
       { kolom: "rataDokTeknisTerverifikasi", definisi: "Rata-rata % dokumen teknis terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0 },
-      { kolom: "minDokTeknisTerverifikasi", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4 },
+      { kolom: "minDokTeknisTerverifikasi", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
       { kolom: "pctDokTeknisTerverifikasiDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen teknis terverifikasi < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
     ],
   },
@@ -175,7 +180,7 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     indicators: [
       { kolom: "pctDokTeknisSesuai", definisi: "% sekolah dengan dokumen teknis sesuai.", sumberData: "Aplikasi Revit", bobot: 0 },
       { kolom: "rataDokTeknisSesuai", definisi: "Rata-rata % dokumen teknis sesuai.", sumberData: "Aplikasi Revit", bobot: 0 },
-      { kolom: "minDokTeknisSesuai", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4 },
+      { kolom: "minDokTeknisSesuai", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
       { kolom: "pctDokTeknisSesuaiDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen teknis sesuai < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
     ],
   },

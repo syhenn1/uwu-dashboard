@@ -1,13 +1,62 @@
 import type { FacilRow, FacilitatorSummary } from "./types";
+import { activeCheckpoints } from "./knowledge/checkpoints";
 
 export type RiskLevel = "rendah" | "sedang" | "tinggi" | "unknown";
 
 /** Nilai Risiko adalah skor terbobot 0-100% (total bobot seluruh checkpoint = 100). */
-export function riskLevel(nilaiRisiko: FacilRow["nilaiRisiko"]): RiskLevel {
+export function riskLevel(nilaiRisiko: number | null): RiskLevel {
   if (typeof nilaiRisiko !== "number") return "unknown";
   if (nilaiRisiko <= 5) return "rendah";
   if (nilaiRisiko <= 15) return "sedang";
   return "tinggi";
+}
+
+function indicatorRiskContribution(
+  row: FacilRow,
+  kolom: keyof FacilRow,
+  polarity: "higherIsWorse" | "higherIsBetter" = "higherIsWorse"
+): number | null {
+  const raw = row[kolom];
+  if (kolom === "fasilBelumLoginLK") {
+    if (raw === "Belum") return 100;
+    if (raw === "Sudah") return 0;
+    return null;
+  }
+  if (typeof raw !== "number") return null;
+  return polarity === "higherIsBetter" ? 100 - raw : raw;
+}
+
+/**
+ * Estimasi Nilai Risiko (0-100) dari bobot checkpoint yang aktif pada hari
+ * tsb, dipakai sebagai fallback kalau kolom "Nilai Risiko" di spreadsheet
+ * kosong (formula belum terpasang di sheet). Bukan angka resmi dari sheet -
+ * selalu tandai sebagai estimasi di UI (lihat getEffectiveRisk).
+ */
+export function computeEstimatedRisk(row: FacilRow): number | null {
+  let weightedSum = 0;
+  let hasAny = false;
+  for (const group of activeCheckpoints(row.hari)) {
+    for (const ind of group.indicators) {
+      if (ind.bobot <= 0) continue;
+      const contribution = indicatorRiskContribution(row, ind.kolom, ind.polarity);
+      if (contribution == null) continue;
+      weightedSum += ind.bobot * (contribution / 100);
+      hasAny = true;
+    }
+  }
+  return hasAny ? weightedSum : null;
+}
+
+export interface EffectiveRisk {
+  value: number | null;
+  /** true kalau nilai berasal dari estimasi aplikasi, bukan kolom "Nilai Risiko" di sheet. */
+  estimated: boolean;
+}
+
+export function getEffectiveRisk(row: FacilRow): EffectiveRisk {
+  if (typeof row.nilaiRisiko === "number") return { value: row.nilaiRisiko, estimated: false };
+  const estimated = computeEstimatedRisk(row);
+  return { value: estimated, estimated: estimated != null };
 }
 
 export function getAvailableDays(rows: FacilRow[]): number[] {
@@ -40,8 +89,8 @@ export function getFacilitators(rows: FacilRow[]): FacilitatorSummary[] {
 
 export function sortByRiskDesc(rows: FacilRow[]): FacilRow[] {
   return [...rows].sort((a, b) => {
-    const av = typeof a.nilaiRisiko === "number" ? a.nilaiRisiko : -1;
-    const bv = typeof b.nilaiRisiko === "number" ? b.nilaiRisiko : -1;
+    const av = getEffectiveRisk(a).value ?? -1;
+    const bv = getEffectiveRisk(b).value ?? -1;
     return bv - av;
   });
 }
@@ -57,7 +106,7 @@ export interface DaySummary {
 
 export function summarizeDay(rowsForDay: FacilRow[]): DaySummary {
   const risikoValues = rowsForDay
-    .map((r) => r.nilaiRisiko)
+    .map((r) => getEffectiveRisk(r).value)
     .filter((v): v is number => typeof v === "number");
   return {
     hari: rowsForDay[0]?.hari ?? 0,
@@ -65,7 +114,7 @@ export function summarizeDay(rowsForDay: FacilRow[]): DaySummary {
     belumLogin: rowsForDay.filter((r) => r.fasilBelumLoginLK === "Belum").length,
     avgRisiko: risikoValues.length ? risikoValues.reduce((a, b) => a + b, 0) / risikoValues.length : null,
     maxRisiko: risikoValues.length ? Math.max(...risikoValues) : null,
-    tinggiCount: rowsForDay.filter((r) => riskLevel(r.nilaiRisiko) === "tinggi").length,
+    tinggiCount: rowsForDay.filter((r) => riskLevel(getEffectiveRisk(r).value) === "tinggi").length,
   };
 }
 
@@ -74,7 +123,7 @@ export function summarizeDay(rowsForDay: FacilRow[]): DaySummary {
  * pemilik program (mis. fasilitator berhenti mengisi LK tapi angka tetap sama). */
 export function hasStagnantMetrics(history: FacilRow[], minConsecutiveDays = 4): boolean {
   if (history.length < minConsecutiveDays) return false;
-  const key = (r: FacilRow) => JSON.stringify([r.nilaiRisiko, r.pctDokAdminTerunggahDibawah90, r.pctDokTeknisTerunggahDibawah90]);
+  const key = (r: FacilRow) => JSON.stringify([r.pctDokAdminTerunggahDibawah90, r.pctDokTeknisTerunggahDibawah90, r.fasilBelumLoginLK]);
   let streak = 1;
   for (let i = 1; i < history.length; i++) {
     if (key(history[i]) === key(history[i - 1])) {

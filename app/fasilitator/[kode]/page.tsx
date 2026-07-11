@@ -1,27 +1,17 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getFacilRows } from "@/lib/sheet";
-import { getRowsForFacilitator, riskLevel, hasStagnantMetrics } from "@/lib/metrics";
+import { getFacilRows, getTodayHari } from "@/lib/sheet";
+import { getRowsForFacilitator, riskLevel, getEffectiveRisk } from "@/lib/metrics";
+import { getCheckpointCompliance, countNonCompliant } from "@/lib/compliance";
+import { buildNoteRanges, formatHariRange, QUALITATIVE_FIELDS } from "@/lib/notes";
+import { detectFacilitatorAnomalies } from "@/lib/anomalies";
 import { DaySelector } from "@/components/DaySelector";
 import { TrendChart } from "@/components/TrendChart";
 import { FacilMetricsList } from "@/components/FacilMetricsList";
 import { AnalysisPanel } from "@/components/AnalysisPanel";
 import { RiskBadge } from "@/components/RiskBadge";
-
-const QUALITATIVE_FIELDS = [
-  { key: "kendalaKomunikasi", label: "Kendala Komunikasi" },
-  { key: "kendalaPanlakFormatTemplate", label: "Kendala Panlak/Format/Template" },
-  { key: "kendalaMendapatkanPerencana", label: "Kendala Mendapatkan Perencana" },
-  { key: "kendalaVerifikasiBiodata", label: "Kendala Verifikasi Biodata" },
-  { key: "kendalaUpdateDapodik", label: "Kendala Update Dapodik" },
-  { key: "kendalaPenyusunanDokAdmin", label: "Kendala Penyusunan Dok. Admin" },
-  { key: "kendalaVerifikasiDokAdmin", label: "Kendala Verifikasi Dok. Admin" },
-  { key: "kendalaPenyusunanDokTeknis", label: "Kendala Penyusunan Dok. Teknis" },
-  { key: "kendalaVerifikasiDokTeknis", label: "Kendala Verifikasi Dok. Teknis" },
-  { key: "kendalaPenyepakatanRAB", label: "Kendala Penyepakatan RAB" },
-  { key: "analisis", label: "Analisis (admin)" },
-  { key: "catatanAdmin", label: "Catatan Admin" },
-] as const;
+import { CheckpointCompliancePanel } from "@/components/CheckpointCompliancePanel";
+import { AnomalyList } from "@/components/AnomalyList";
 
 export default async function FacilitatorDetailPage({
   params,
@@ -40,14 +30,14 @@ export default async function FacilitatorDetailPage({
   const latestDay = days[days.length - 1];
   const hari = hariParam ? parseInt(hariParam, 10) : latestDay;
   const currentRow = history.find((r) => r.hari === hari) ?? history[history.length - 1];
-  const stagnant = hasStagnantMetrics(history);
+  const risk = getEffectiveRisk(currentRow);
+  const todayHari = await getTodayHari();
+  const compliance = getCheckpointCompliance(history[history.length - 1], todayHari);
+  const nonCompliantCount = countNonCompliant(compliance);
 
-  const notes = history.flatMap((row) =>
-    QUALITATIVE_FIELDS.filter((f) => {
-      const v = row[f.key];
-      return typeof v === "string" && v.trim() !== "" && v !== "Belum Diisi";
-    }).map((f) => ({ hari: row.hari, label: f.label, text: row[f.key] as string }))
-  );
+  const notes = buildNoteRanges(history, QUALITATIVE_FIELDS, (text) => text !== "Belum Diisi");
+  const unfilled = buildNoteRanges(history, QUALITATIVE_FIELDS, (text) => text === "Belum Diisi");
+  const anomalies = detectFacilitatorAnomalies(history, todayHari);
 
   return (
     <div className="flex flex-col gap-6">
@@ -57,10 +47,10 @@ export default async function FacilitatorDetailPage({
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-3">
           <h1 className="text-lg font-semibold">{currentRow.namaFasil}</h1>
-          <RiskBadge level={riskLevel(currentRow.nilaiRisiko)} value={typeof currentRow.nilaiRisiko === "number" ? currentRow.nilaiRisiko : null} />
-          {stagnant && (
-            <span className="rounded-full bg-status-warning/15 px-2.5 py-1 text-xs font-medium text-[#8a5a00] dark:text-status-warning">
-              ⚠ Data tidak berubah beberapa hari berturut-turut
+          <RiskBadge level={riskLevel(risk.value)} value={risk.value} estimated={risk.estimated} />
+          {nonCompliantCount > 0 && (
+            <span className="rounded-full bg-status-critical/10 px-2.5 py-1 text-xs font-medium text-status-critical">
+              ⚠ {nonCompliantCount} checkpoint belum sesuai (per Hari {todayHari})
             </span>
           )}
         </div>
@@ -69,9 +59,21 @@ export default async function FacilitatorDetailPage({
         </p>
       </div>
 
-      <DaySelector days={days} current={hari} basePath={`/fasilitator/${kode}`} />
+      <DaySelector days={days} current={hari} basePath={`/fasilitator/${kode}`} todayHari={todayHari} />
+
+      {anomalies.length > 0 && (
+        <div>
+          <h2 className="mb-3 text-sm font-semibold text-ink-primary">Anomali Terdeteksi</h2>
+          <AnomalyList items={anomalies} />
+        </div>
+      )}
 
       <TrendChart history={history} />
+
+      <div>
+        <h2 className="mb-3 text-sm font-semibold text-ink-primary">Kepatuhan Checkpoint (per Hari {todayHari}, hari ini)</h2>
+        <CheckpointCompliancePanel compliance={compliance} todayHari={todayHari} />
+      </div>
 
       <AnalysisPanel
         endpoint="/api/analyze/facilitator"
@@ -91,8 +93,25 @@ export default async function FacilitatorDetailPage({
           <ul className="flex flex-col gap-2">
             {notes.map((n, i) => (
               <li key={i} className="rounded-lg border border-border bg-surface p-3 text-sm">
-                <span className="mr-2 rounded bg-background px-1.5 py-0.5 text-xs text-ink-muted">Hari {n.hari}</span>
+                <span className="mr-2 rounded bg-background px-1.5 py-0.5 text-xs text-ink-muted">{formatHariRange(n)}</span>
                 <span className="font-medium text-ink-secondary">{n.label}:</span> <span className="text-ink-primary">{n.text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {unfilled.length > 0 && (
+        <div>
+          <h2 className="mb-3 text-sm font-semibold text-ink-primary">Belum Diisi Fasilitator</h2>
+          <p className="mb-2 text-xs text-ink-muted">
+            Kolom Kendala yang masih placeholder &ldquo;Belum Diisi&rdquo; - bagian LK yang belum ditanggapi fasilitator sama sekali. Ini juga yang jadi dasar checkpoint di atas ditandai &ldquo;Tidak ada data&rdquo;, bukan &ldquo;Sesuai&rdquo;.
+          </p>
+          <ul className="flex flex-col gap-1.5">
+            {unfilled.map((n, i) => (
+              <li key={i} className="rounded-lg border border-border bg-surface px-3 py-2 text-xs text-ink-muted">
+                <span className="mr-2 rounded bg-background px-1.5 py-0.5">{formatHariRange(n)}</span>
+                {n.label}
               </li>
             ))}
           </ul>

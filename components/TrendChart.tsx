@@ -2,8 +2,9 @@
 
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import type { FacilRow } from "@/lib/types";
+import { getEffectiveRisk } from "@/lib/metrics";
 
-const SERIES: Array<{ key: keyof FacilRow; label: string; color: string }> = [
+const SERIES: Array<{ key: string; label: string; color: string }> = [
   { key: "nilaiRisiko", label: "Nilai Risiko", color: "var(--series-1)" },
   { key: "pctSekolahBelumLoginAplikasi", label: "% Belum Login Aplikasi", color: "var(--series-2)" },
   { key: "pctDokAdminTerunggahDibawah90", label: "% Dok. Admin Terunggah < 90%", color: "var(--series-3)" },
@@ -13,11 +14,12 @@ const SERIES: Array<{ key: keyof FacilRow; label: string; color: string }> = [
 export function TrendChart({ history }: { history: FacilRow[] }) {
   const data = history.map((r) => ({
     hari: `H${r.hari}`,
-    nilaiRisiko: typeof r.nilaiRisiko === "number" ? r.nilaiRisiko : null,
+    nilaiRisiko: getEffectiveRisk(r).value,
     pctSekolahBelumLoginAplikasi: typeof r.pctSekolahBelumLoginAplikasi === "number" ? r.pctSekolahBelumLoginAplikasi : null,
     pctDokAdminTerunggahDibawah90: typeof r.pctDokAdminTerunggahDibawah90 === "number" ? r.pctDokAdminTerunggahDibawah90 : null,
     pctDokTeknisTerunggahDibawah90: typeof r.pctDokTeknisTerunggahDibawah90 === "number" ? r.pctDokTeknisTerunggahDibawah90 : null,
   }));
+  const anyEstimated = history.some((r) => getEffectiveRisk(r).estimated);
 
   return (
     <div className="rounded-lg border border-border bg-surface p-4">
@@ -54,6 +56,11 @@ export function TrendChart({ history }: { history: FacilRow[] }) {
           ))}
         </LineChart>
       </ResponsiveContainer>
+      {anyEstimated && (
+        <p className="mt-2 text-xs text-ink-muted">
+          * Nilai Risiko diestimasi dari bobot checkpoint karena kolom &quot;Nilai Risiko&quot; kosong di sheet untuk sebagian hari.
+        </p>
+      )}
     </div>
   );
 }

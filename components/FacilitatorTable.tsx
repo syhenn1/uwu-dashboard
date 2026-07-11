@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import type { FacilRow } from "@/lib/types";
-import { riskLevel } from "@/lib/metrics";
+import { riskLevel, getEffectiveRisk } from "@/lib/metrics";
 import { RiskBadge } from "./RiskBadge";
 
 type SortKey = "nama" | "risiko" | "belumLoginApp" | "belumDihubungi";
@@ -12,7 +12,15 @@ function numOrNeg(v: FacilRow[keyof FacilRow]): number {
   return typeof v === "number" ? v : -1;
 }
 
-export function FacilitatorTable({ rows, hari }: { rows: FacilRow[]; hari: number }) {
+export function FacilitatorTable({
+  rows,
+  hari,
+  complianceCounts,
+}: {
+  rows: FacilRow[];
+  hari: number;
+  complianceCounts?: Map<string, number>;
+}) {
   const [sortKey, setSortKey] = useState<SortKey>("risiko");
   const [asc, setAsc] = useState(false);
 
@@ -21,7 +29,7 @@ export function FacilitatorTable({ rows, hari }: { rows: FacilRow[]; hari: numbe
     copy.sort((a, b) => {
       let diff = 0;
       if (sortKey === "nama") diff = a.namaFasil.localeCompare(b.namaFasil);
-      if (sortKey === "risiko") diff = numOrNeg(a.nilaiRisiko) - numOrNeg(b.nilaiRisiko);
+      if (sortKey === "risiko") diff = (getEffectiveRisk(a).value ?? -1) - (getEffectiveRisk(b).value ?? -1);
       if (sortKey === "belumLoginApp") diff = numOrNeg(a.pctSekolahBelumLoginAplikasi) - numOrNeg(b.pctSekolahBelumLoginAplikasi);
       if (sortKey === "belumDihubungi") diff = numOrNeg(a.pctSekolahBelumDihubungi) - numOrNeg(b.pctSekolahBelumDihubungi);
       return asc ? diff : -diff;
@@ -58,6 +66,7 @@ export function FacilitatorTable({ rows, hari }: { rows: FacilRow[]; hari: numbe
             <th className="px-3 py-2">{headerBtn("belumLoginApp", "% Belum Login App")}</th>
             <th className="px-3 py-2">{headerBtn("belumDihubungi", "% Belum Dihubungi")}</th>
             <th className="px-3 py-2">{headerBtn("risiko", "Nilai Risiko")}</th>
+            {complianceCounts && <th className="px-3 py-2 text-left text-xs font-medium text-ink-secondary">Checkpoint</th>}
           </tr>
         </thead>
         <tbody>
@@ -84,8 +93,23 @@ export function FacilitatorTable({ rows, hari }: { rows: FacilRow[]; hari: numbe
                 {typeof r.pctSekolahBelumDihubungi === "number" ? `${r.pctSekolahBelumDihubungi}%` : "-"}
               </td>
               <td className="px-3 py-2">
-                <RiskBadge level={riskLevel(r.nilaiRisiko)} value={typeof r.nilaiRisiko === "number" ? r.nilaiRisiko : null} />
+                {(() => {
+                  const risk = getEffectiveRisk(r);
+                  return <RiskBadge level={riskLevel(risk.value)} value={risk.value} estimated={risk.estimated} />;
+                })()}
               </td>
+              {complianceCounts && (
+                <td className="px-3 py-2">
+                  {(() => {
+                    const count = complianceCounts.get(r.kodeFasil) ?? 0;
+                    return count > 0 ? (
+                      <span className="text-status-critical">{count} belum sesuai</span>
+                    ) : (
+                      <span className="text-status-good">Sesuai</span>
+                    );
+                  })()}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>
