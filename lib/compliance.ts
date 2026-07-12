@@ -1,23 +1,70 @@
 import { activeCheckpoints } from "./knowledge/checkpoints";
 import type { CheckpointGroup, CheckpointIndicator } from "./knowledge/checkpoints";
 import { KEY_TO_HEADER } from "./columns";
-import type { FacilRow } from "./types";
+import { LK_APLIKASI_PAIRS, MISMATCH_THRESHOLD } from "./anomalies";
+import type { CheckpointSourceData, FacilRow } from "./types";
 
 export type IndicatorStatus = "ok" | "violation" | "unknown";
+
+/** Nilai pembanding dari sisi lain (LK <-> Aplikasi) untuk indikator yang
+ * punya pasangan sungguhan di LK_APLIKASI_PAIRS - dipakai supaya panel tidak
+ * cuma menampilkan satu sisi (mis. Aplikasi) padahal versi LK-nya juga ada. */
+export interface IndicatorCounterpart {
+  kolom: keyof FacilRow;
+  label: string;
+  value: number | null;
+  selisih: number | null;
+  konsisten: boolean;
+}
 
 export interface IndicatorCompliance {
   kolom: keyof FacilRow;
   label: string;
   status: IndicatorStatus;
   detail: string;
+  sumberData: CheckpointSourceData;
+  /** true kalau indikator ini penggerak status checkpoint (bobot > 0). */
+  gating: boolean;
   /** Kenapa nilai "ok" mentah di sheet didowngrade jadi "unknown" (kalau ada). */
   note?: string;
+  counterpart?: IndicatorCounterpart;
 }
 
 export interface CheckpointCompliance {
   group: CheckpointGroup;
   status: "sesuai" | "belum-sesuai" | "unknown";
   indicators: IndicatorCompliance[];
+  /** Catatan "Kendala ..." dari Hasil LK terkait checkpoint ini (kalau diisi fasilitator) - konteks kualitatif sisi LK, dipakai juga untuk checkpoint yang datanya cuma bersumber Aplikasi.
+   * `isIssue` = kendala ini genuinely melaporkan masalah dari hasil wawancara ke sekolah (bukan placeholder "belum diisi") - dipakai sebagai status LK tersirat: ada kendala berarti sisi LK-nya "Belum", tanpa perlu kolom status LK terpisah. */
+  kendala?: { label: string; text: string; isIssue: boolean };
+}
+
+/** Kolom -> pasangannya di sisi lain (LK Fasil <-> Aplikasi Revit), dibangun
+ * dari LK_APLIKASI_PAIRS supaya konsisten dengan anomaly detection. */
+const COUNTERPART_MAP = new Map<keyof FacilRow, { kolom: keyof FacilRow; label: string }>();
+for (const pair of LK_APLIKASI_PAIRS) {
+  COUNTERPART_MAP.set(pair.lk, { kolom: pair.aplikasi, label: pair.label });
+  COUNTERPART_MAP.set(pair.aplikasi, { kolom: pair.lk, label: pair.label });
+}
+
+function attachCounterpart(base: IndicatorCompliance, row: FacilRow): IndicatorCompliance {
+  const counterpart = COUNTERPART_MAP.get(base.kolom);
+  if (!counterpart) return base;
+  const counterpartRaw = row[counterpart.kolom];
+  const rawVal = row[base.kolom];
+  const value = typeof counterpartRaw === "number" ? counterpartRaw : null;
+  const rawNum = typeof rawVal === "number" ? rawVal : null;
+  const selisih = value != null && rawNum != null ? Math.abs(value - rawNum) : null;
+  return {
+    ...base,
+    counterpart: {
+      kolom: counterpart.kolom,
+      label: KEY_TO_HEADER[counterpart.kolom] ?? String(counterpart.kolom),
+      value,
+      selisih,
+      konsisten: selisih != null ? selisih < MISMATCH_THRESHOLD : true,
+    },
+  };
 }
 
 /**
@@ -94,24 +141,40 @@ function trustLkOkValue(row: FacilRow, group: CheckpointGroup, ind: CheckpointIn
 function evaluateIndicator(row: FacilRow, group: CheckpointGroup, ind: CheckpointIndicator): IndicatorCompliance {
   const label = KEY_TO_HEADER[ind.kolom] ?? String(ind.kolom);
   const raw = row[ind.kolom];
+  const sumberData = ind.sumberData;
+  const gating = ind.bobot > 0;
+
+  let status: IndicatorStatus;
+  let detail: string;
+  let note: string | undefined;
 
   if (ind.kolom === "fasilBelumLoginLK") {
-    if (raw !== "Sudah" && raw !== "Belum") return { kolom: ind.kolom, label, status: "unknown", detail: "-" };
-    return { kolom: ind.kolom, label, status: raw === "Sudah" ? "ok" : "violation", detail: raw };
+    if (raw !== "Sudah" && raw !== "Belum") {
+      status = "unknown";
+      detail = "-";
+    } else {
+      status = raw === "Sudah" ? "ok" : "violation";
+      detail = raw;
+    }
+  } else if (typeof raw !== "number") {
+    status = "unknown";
+    detail = "-";
+  } else {
+    const target = ind.polarity === "higherIsBetter" ? 100 : 0;
+    const looksOk = raw === target;
+    detail = `${raw}%`;
+    status = looksOk ? "ok" : "violation";
+
+    if (looksOk && sumberData === "LK Fasil") {
+      const distrustReason = trustLkOkValue(row, group, ind);
+      if (distrustReason) {
+        status = "unknown";
+        note = distrustReason;
+      }
+    }
   }
 
-  if (typeof raw !== "number") return { kolom: ind.kolom, label, status: "unknown", detail: "-" };
-
-  const target = ind.polarity === "higherIsBetter" ? 100 : 0;
-  const looksOk = raw === target;
-  const detail = `${raw}%`;
-
-  if (looksOk && ind.sumberData === "LK Fasil") {
-    const distrustReason = trustLkOkValue(row, group, ind);
-    if (distrustReason) return { kolom: ind.kolom, label, status: "unknown", detail, note: distrustReason };
-  }
-
-  return { kolom: ind.kolom, label, status: looksOk ? "ok" : "violation", detail };
+  return attachCounterpart({ kolom: ind.kolom, label, status, detail, note, sumberData, gating }, row);
 }
 
 /**
@@ -127,12 +190,24 @@ function evaluateIndicator(row: FacilRow, group: CheckpointGroup, ind: Checkpoin
  */
 export function getCheckpointCompliance(row: FacilRow, todayHari: number): CheckpointCompliance[] {
   return activeCheckpoints(todayHari).map((group) => {
-    const gating = group.indicators.filter((i) => i.bobot > 0);
-    const indicators = gating.map((ind) => evaluateIndicator(row, group, ind));
-    const hasViolation = indicators.some((i) => i.status === "violation");
-    const hasUnknown = indicators.some((i) => i.status === "unknown");
+    const indicators = group.indicators.map((ind) => evaluateIndicator(row, group, ind));
+    const gating = indicators.filter((i) => i.gating);
+    const hasViolation = gating.some((i) => i.status === "violation");
+    const hasUnknown = gating.some((i) => i.status === "unknown");
     const status: CheckpointCompliance["status"] = hasViolation ? "belum-sesuai" : hasUnknown ? "unknown" : "sesuai";
-    return { group, status, indicators };
+
+    const kendalaKey = KENDALA_BY_CHECKPOINT[group.no];
+    const kendalaVal = kendalaKey ? row[kendalaKey] : null;
+    const kendala =
+      kendalaKey && typeof kendalaVal === "string" && kendalaVal.trim() !== ""
+        ? {
+            label: KEY_TO_HEADER[kendalaKey] ?? String(kendalaKey),
+            text: kendalaVal,
+            isIssue: !BELUM_DIISI_PATTERN.test(kendalaVal),
+          }
+        : undefined;
+
+    return { group, status, indicators, kendala };
   });
 }
 

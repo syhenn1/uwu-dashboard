@@ -1,5 +1,6 @@
 import { KEY_TO_HEADER } from "./columns";
 import { QUALITATIVE_FIELDS } from "./notes";
+import { groupRowsByFacilitator, getCurrentRow } from "./metrics";
 import type { FacilRow } from "./types";
 
 export type AnomalyType = "future_data" | "never_logged_in" | "lk_aplikasi_mismatch" | "contradicted_zero";
@@ -19,10 +20,15 @@ export interface FacilitatorAnomalyReport {
 const BELUM_DIISI_PATTERN = /belum\s*(di\s*)?isi|belum\s+mengisi|belum\s+ada\s+data|kosong/i;
 
 /** Pasangan kolom "Hasil LK" vs "Aplikasi" yang seharusnya menceritakan hal
- * yang sama - kalau bertolak belakang jauh, salah satunya patut dicurigai. */
-const LK_APLIKASI_PAIRS: Array<{ lk: keyof FacilRow; aplikasi: keyof FacilRow; label: string }> = [
+ * yang sama - kalau bertolak belakang jauh, salah satunya patut dicurigai.
+ * Diekspor supaya dipakai ulang oleh tabel perbandingan di dashboard. */
+export const LK_APLIKASI_PAIRS: Array<{ lk: keyof FacilRow; aplikasi: keyof FacilRow; label: string }> = [
   { lk: "pctTidakPunyaPerencanaLK", aplikasi: "pctTidakPunyaPerencanaAplikasi", label: "Perencana" },
 ];
+
+/** Ambang selisih (poin persentase) sebelum sepasang kolom Hasil LK/Aplikasi
+ * dianggap "tidak konsisten". */
+export const MISMATCH_THRESHOLD = 40;
 
 /** Kolom "% masalah" ber-sumber LK Fasil yang punya kolom Kendala terkait -
  * dipakai untuk mendeteksi 0% yang dikontradiksi catatan "belum diisi". */
@@ -39,22 +45,28 @@ function label(kolom: keyof FacilRow): string {
 
 /**
  * Mendeteksi anomali untuk satu fasilitator (history = seluruh baris hari
- * yang tersedia, sudah terurut naik). Empat jenis:
+ * yang tersedia, sudah terurut naik). Semua pengecekan "kondisi terkini"
+ * dievaluasi dari getCurrentRow(history, todayHari) - hari terakhir yang
+ * SUDAH TERJADI - bukan baris terakhir di array (yang bisa jadi placeholder
+ * untuk hari yang belum tiba). Ini penting: kalau fasilitator belum login di
+ * Hari 2 tapi mulai login di Hari 4, kesimpulan "belum login" tidak boleh
+ * terus dipakai untuk Hari 4 dan seterusnya - begitu ada baris yang
+ * menunjukkan perubahan, itulah yang dipakai.
+ *
+ * Empat jenis anomali:
  * 1. future_data - kolom kualitatif sudah berisi konten asli untuk hari yang
- *    belum terjadi (lebih besar dari todayHari) - mencurigakan karena data
- *    itu ditulis manusia, seharusnya belum ada apa-apa untuk hari yang belum
- *    tiba.
- * 2. never_logged_in - fasilitator belum pernah login/isi LK sama sekali.
+ *    belum terjadi (lebih besar dari todayHari).
+ * 2. never_logged_in - fasilitator belum pernah login/isi LK sama sekali,
+ *    per kondisi TERKINI (bukan cuma di hari-hari awal).
  * 3. lk_aplikasi_mismatch - kolom yang punya versi "Hasil LK" dan "Aplikasi"
  *    saling bertolak belakang jauh (>=40 poin persentase).
  * 4. contradicted_zero - kolom "% masalah" ber-sumber LK Fasil terbaca 0%,
- *    tapi catatan Kendala terkait bilang itu belum diisi (indikasi 0% cuma
- *    default kosong, bukan hasil verifikasi).
+ *    tapi catatan Kendala terkait bilang itu belum diisi.
  */
 export function detectFacilitatorAnomalies(history: FacilRow[], todayHari: number): AnomalyItem[] {
   const items: AnomalyItem[] = [];
-  if (history.length === 0) return items;
-  const latest = history[history.length - 1];
+  const latest = getCurrentRow(history, todayHari);
+  if (!latest) return items;
 
   for (const row of history) {
     if (row.hari <= todayHari) continue;
@@ -71,13 +83,13 @@ export function detectFacilitatorAnomalies(history: FacilRow[], todayHari: numbe
   }
 
   if (latest.fasilBelumLoginLK === "Belum") {
-    items.push({ type: "never_logged_in", severity: "tinggi", detail: "Belum pernah login/mengisi LK sama sekali." });
+    items.push({ type: "never_logged_in", severity: "tinggi", detail: `Belum login/mengisi LK sama sekali per Hari ${latest.hari}.` });
   }
 
   for (const pair of LK_APLIKASI_PAIRS) {
     const lkVal = latest[pair.lk];
     const appVal = latest[pair.aplikasi];
-    if (typeof lkVal === "number" && typeof appVal === "number" && Math.abs(appVal - lkVal) >= 40) {
+    if (typeof lkVal === "number" && typeof appVal === "number" && Math.abs(appVal - lkVal) >= MISMATCH_THRESHOLD) {
       items.push({
         type: "lk_aplikasi_mismatch",
         severity: "sedang",
@@ -106,19 +118,56 @@ export function detectFacilitatorAnomalies(history: FacilRow[], todayHari: numbe
 /** Menjalankan deteksi anomali untuk seluruh fasilitator di `rows` (output
  * getFacilRows()), diurutkan dari yang paling banyak anomalinya. */
 export function scanAllAnomalies(rows: FacilRow[], todayHari: number): FacilitatorAnomalyReport[] {
-  const byFasil = new Map<string, FacilRow[]>();
-  for (const r of rows) {
-    if (!byFasil.has(r.kodeFasil)) byFasil.set(r.kodeFasil, []);
-    byFasil.get(r.kodeFasil)!.push(r);
-  }
+  const byFasil = groupRowsByFacilitator(rows);
 
   const reports: FacilitatorAnomalyReport[] = [];
   for (const [kodeFasil, history] of byFasil) {
     const sorted = [...history].sort((a, b) => a.hari - b.hari);
     const items = detectFacilitatorAnomalies(sorted, todayHari);
     if (items.length > 0) {
-      reports.push({ kodeFasil, namaFasil: sorted[sorted.length - 1].namaFasil, items });
+      const latest = getCurrentRow(sorted, todayHari);
+      reports.push({ kodeFasil, namaFasil: latest?.namaFasil ?? sorted[sorted.length - 1].namaFasil, items });
     }
   }
   return reports.sort((a, b) => b.items.length - a.items.length);
+}
+
+export interface LkAplikasiRow {
+  kodeFasil: string;
+  namaFasil: string;
+  label: string;
+  lk: number | null;
+  aplikasi: number | null;
+  selisih: number | null;
+  konsisten: boolean;
+}
+
+/** Membandingkan tiap pasangan kolom Hasil LK vs Aplikasi (LK_APLIKASI_PAIRS)
+ * untuk kondisi TERKINI setiap fasilitator (hari terakhir yang sudah
+ * terjadi, lihat getCurrentRow). Dipakai untuk tabel perbandingan di
+ * dashboard. */
+export function compareLkAplikasi(rows: FacilRow[], todayHari: number): LkAplikasiRow[] {
+  const byFasil = groupRowsByFacilitator(rows);
+  const result: LkAplikasiRow[] = [];
+  for (const history of byFasil.values()) {
+    const row = getCurrentRow(history, todayHari);
+    if (!row) continue;
+    for (const pair of LK_APLIKASI_PAIRS) {
+      const lkVal = row[pair.lk];
+      const appVal = row[pair.aplikasi];
+      const lk = typeof lkVal === "number" ? lkVal : null;
+      const aplikasi = typeof appVal === "number" ? appVal : null;
+      const selisih = lk != null && aplikasi != null ? Math.abs(aplikasi - lk) : null;
+      result.push({
+        kodeFasil: row.kodeFasil,
+        namaFasil: row.namaFasil,
+        label: pair.label,
+        lk,
+        aplikasi,
+        selisih,
+        konsisten: selisih != null ? selisih < MISMATCH_THRESHOLD : true,
+      });
+    }
+  }
+  return result.sort((a, b) => (b.selisih ?? -1) - (a.selisih ?? -1));
 }

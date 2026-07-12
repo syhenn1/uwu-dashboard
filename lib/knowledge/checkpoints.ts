@@ -102,8 +102,8 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     tujuan: "Mengidentifikasi sekolah belum siap menyusun RAB usulan, dan menganalisis potensi penyebab tidak tercapainya target checkpoint dokumen yang terunggah teknis.",
     indicators: [
       { kolom: "pctDapodikTidakSesuaiBelumUpdate", definisi: "F.1 Kesesuaian Dapodik dengan Lapangan = Belum & F.3 Status Update Dapodik (hanya ketika Belum Sesuai Kebutuhan) = Belum", sumberData: "LK Fasil", bobot: 5 },
-      { kolom: "pctSudahUpdateDapodik", definisi: "Sekolah yang sudah update Dapodik sesuai kebutuhan lapangan.", sumberData: "LK Fasil", bobot: 0 },
-      { kolom: "pctSudahUploadBuktiUpdateDapodik", definisi: "Sekolah yang sudah upload bukti update Dapodik.", sumberData: "LK Fasil", bobot: 0 },
+      { kolom: "pctSudahUpdateDapodik", definisi: "Sekolah yang sudah update Dapodik sesuai kebutuhan lapangan.", sumberData: "LK Fasil", bobot: 0, polarity: "higherIsBetter" },
+      { kolom: "pctSudahUploadBuktiUpdateDapodik", definisi: "Sekolah yang sudah upload bukti update Dapodik.", sumberData: "LK Fasil", bobot: 0, polarity: "higherIsBetter" },
     ],
   },
   {
@@ -113,8 +113,8 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     bobotTotal: 9,
     tujuan: "Memberi peringatan waspada ketika ada sekolah yang dokumen admin terunggahnya di bawah 80%, dan gambaran perlunya pembinaan fasilitator terkait percepatan unggah dokumen oleh sekolah.",
     indicators: [
-      { kolom: "pctDokAdminTerunggahLengkap", definisi: "% sekolah dengan dokumen admin terunggah 100% (lengkap).", sumberData: "Aplikasi Revit", bobot: 0 },
-      { kolom: "rataDokAdminTerunggah", definisi: "Rata-rata % dokumen admin terunggah di aplikasi.", sumberData: "Aplikasi Revit", bobot: 0 },
+      { kolom: "pctDokAdminTerunggahLengkap", definisi: "% sekolah dengan dokumen admin terunggah 100% (lengkap).", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
+      { kolom: "rataDokAdminTerunggah", definisi: "Rata-rata % dokumen admin terunggah di aplikasi.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
       { kolom: "minDokAdminTerunggah", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
       { kolom: "pctDokAdminTerunggahDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen admin terunggah < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
     ],
@@ -126,8 +126,8 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     bobotTotal: 9,
     tujuan: "Memberi alert bahwa ada sekolah yang masih banyak dokumen adminnya belum diverifikasi, dan gambaran perlunya pembinaan fasilitator untuk segera memverifikasi dokumen.",
     indicators: [
-      { kolom: "pctDokAdminTerverifikasi", definisi: "% sekolah dengan dokumen admin terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0 },
-      { kolom: "rataDokAdminTerverifikasi", definisi: "Rata-rata % dokumen admin terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0 },
+      { kolom: "pctDokAdminTerverifikasi", definisi: "% sekolah dengan dokumen admin terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
+      { kolom: "rataDokAdminTerverifikasi", definisi: "Rata-rata % dokumen admin terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
       { kolom: "minDokAdminTerverifikasi", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
       { kolom: "pctDokAdminTerverifikasiDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen admin terverifikasi < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
     ],
@@ -139,8 +139,8 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     bobotTotal: 9,
     tujuan: "Memberi peringatan waspada ketika ada sekolah yang dokumen admin sesuainya di bawah 80%, dan gambaran perlunya pembinaan fasilitator terkait peningkatan kualitas pendampingan dan percepatan verifikasi.",
     indicators: [
-      { kolom: "pctDokAdminSesuai", definisi: "% sekolah dengan dokumen admin sesuai.", sumberData: "Aplikasi Revit", bobot: 0 },
-      { kolom: "rataDokAdminSesuai", definisi: "Rata-rata % dokumen admin sesuai.", sumberData: "Aplikasi Revit", bobot: 0 },
+      { kolom: "pctDokAdminSesuai", definisi: "% sekolah dengan dokumen admin sesuai.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
+      { kolom: "rataDokAdminSesuai", definisi: "Rata-rata % dokumen admin sesuai.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
       { kolom: "minDokAdminSesuai", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
       { kolom: "pctDokAdminSesuaiDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen admin sesuai < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
     ],
@@ -152,8 +152,8 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     bobotTotal: 9,
     tujuan: "Memberi peringatan waspada ketika ada sekolah yang dokumen teknis terunggahnya di bawah 80%, dan gambaran perlunya pembinaan fasilitator terkait percepatan unggah dokumen oleh sekolah.",
     indicators: [
-      { kolom: "pctDokTeknisTerunggahLengkap", definisi: "% sekolah dengan dokumen teknis terunggah 100% (lengkap).", sumberData: "Aplikasi Revit", bobot: 0 },
-      { kolom: "rataDokTeknisTerunggah", definisi: "Rata-rata % dokumen teknis terunggah.", sumberData: "Aplikasi Revit", bobot: 0 },
+      { kolom: "pctDokTeknisTerunggahLengkap", definisi: "% sekolah dengan dokumen teknis terunggah 100% (lengkap).", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
+      { kolom: "rataDokTeknisTerunggah", definisi: "Rata-rata % dokumen teknis terunggah.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
       { kolom: "minDokTeknisTerunggah", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
       { kolom: "pctDokTeknisTerunggahDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen teknis terunggah < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
     ],
@@ -165,8 +165,8 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     bobotTotal: 9,
     tujuan: "Memberi alert bahwa ada sekolah yang masih banyak dokumen teknisnya belum diverifikasi, dan gambaran perlunya pembinaan fasilitator untuk segera memverifikasi dokumen.",
     indicators: [
-      { kolom: "pctDokTeknisTerverifikasi", definisi: "% sekolah dengan dokumen teknis terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0 },
-      { kolom: "rataDokTeknisTerverifikasi", definisi: "Rata-rata % dokumen teknis terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0 },
+      { kolom: "pctDokTeknisTerverifikasi", definisi: "% sekolah dengan dokumen teknis terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
+      { kolom: "rataDokTeknisTerverifikasi", definisi: "Rata-rata % dokumen teknis terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
       { kolom: "minDokTeknisTerverifikasi", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
       { kolom: "pctDokTeknisTerverifikasiDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen teknis terverifikasi < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
     ],
@@ -178,8 +178,8 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     bobotTotal: 9,
     tujuan: "Memberi peringatan waspada ketika ada sekolah yang dokumen teknis sesuainya di bawah 80%, dan gambaran perlunya pembinaan fasilitator terkait peningkatan kualitas pendampingan dan percepatan verifikasi.",
     indicators: [
-      { kolom: "pctDokTeknisSesuai", definisi: "% sekolah dengan dokumen teknis sesuai.", sumberData: "Aplikasi Revit", bobot: 0 },
-      { kolom: "rataDokTeknisSesuai", definisi: "Rata-rata % dokumen teknis sesuai.", sumberData: "Aplikasi Revit", bobot: 0 },
+      { kolom: "pctDokTeknisSesuai", definisi: "% sekolah dengan dokumen teknis sesuai.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
+      { kolom: "rataDokTeknisSesuai", definisi: "Rata-rata % dokumen teknis sesuai.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
       { kolom: "minDokTeknisSesuai", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
       { kolom: "pctDokTeknisSesuaiDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen teknis sesuai < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
     ],

@@ -10,6 +10,7 @@ export async function POST(req: NextRequest) {
     if (typeof hari !== "number") {
       return NextResponse.json({ error: "hari wajib diisi." }, { status: 400 });
     }
+    console.log(`[API] POST /api/analyze/summary - hari=${hari}`);
 
     const rows = await getFacilRows();
     const dayRows = getRowsForDay(rows, hari);
@@ -22,6 +23,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ result });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Terjadi kesalahan tak terduga.";
+    console.error(`[API] /api/analyze/summary gagal:`, message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

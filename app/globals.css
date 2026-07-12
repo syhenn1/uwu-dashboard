@@ -1,6 +1,10 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
 
+/* Whitemode dikunci: matikan strategi dark: bawaan (media prefers-color-scheme)
+   supaya utility "dark:" di komponen lama tidak lagi ikut aktif mengikuti OS. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
   --background: #f9f9f7;
   --surface: #fcfcfb;
@@ -51,30 +55,8 @@
   --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0d0d0d;
-    --surface: #1a1a19;
-    --ink-primary: #ffffff;
-    --ink-secondary: #c3c2b7;
-    --ink-muted: #898781;
-    --gridline: #2c2c2a;
-    --baseline: #383835;
-    --border: rgba(255, 255, 255, 0.1);
-
-    --status-good: #0ca30c;
-    --status-warning: #fab219;
-    --status-serious: #ec835a;
-    --status-critical: #d03b3b;
-
-    --series-1: #3987e5;
-    --series-2: #199e70;
-    --series-3: #c98500;
-    --series-4: #008300;
-    --series-5: #9085e9;
-    --series-6: #e66767;
-  }
-}
+/* Dashboard ini sengaja dikunci whitemode (tidak mengikuti prefers-color-scheme)
+   supaya tampilan konsisten untuk semua pengguna, terlepas dari tema OS/browser. */
 
 body {
   background: var(--background);

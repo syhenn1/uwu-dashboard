@@ -29,12 +29,17 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
+kolom_lk_tmp.csv
+masterx_peek.csv
 
 # env files (can opt-in for committing if needed)
 .env*
 
 # vercel
 .vercel
+
+# notification state (local file-based, see lib/notifyState.ts)
+/.data
 
 # typescript
 *.tsbuildinfo

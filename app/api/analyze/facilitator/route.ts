@@ -10,6 +10,7 @@ export async function POST(req: NextRequest) {
     if (!kodeFasil || typeof kodeFasil !== "string") {
       return NextResponse.json({ error: "kodeFasil wajib diisi." }, { status: 400 });
     }
+    console.log(`[API] POST /api/analyze/facilitator - kodeFasil=${kodeFasil} hari=${hari ?? "(semua)"}`);
 
     const rows = await getFacilRows();
     let history = getRowsForFacilitator(rows, kodeFasil);
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ result });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Terjadi kesalahan tak terduga.";
+    console.error(`[API] /api/analyze/facilitator gagal:`, message);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }

@@ -71,6 +71,32 @@ export function getRowsForFacilitator(rows: FacilRow[], kodeFasil: string): Faci
   return rows.filter((r) => r.kodeFasil === kodeFasil).sort((a, b) => a.hari - b.hari);
 }
 
+export function groupRowsByFacilitator(rows: FacilRow[]): Map<string, FacilRow[]> {
+  const map = new Map<string, FacilRow[]>();
+  for (const r of rows) {
+    if (!map.has(r.kodeFasil)) map.set(r.kodeFasil, []);
+    map.get(r.kodeFasil)!.push(r);
+  }
+  return map;
+}
+
+/**
+ * Baris yang mewakili kondisi "sekarang" untuk satu fasilitator: hari
+ * TERAKHIR YANG SUDAH TERJADI (hari <= todayHari), bukan sekadar baris
+ * terakhir di array. Sheet punya baris placeholder untuk semua 14 hari
+ * sekaligus (termasuk hari yang belum tiba) - kalau dipilih tanpa
+ * mempertimbangkan todayHari, kesimpulan dari hari awal (mis. "belum login")
+ * bisa "terkunci" seolah masih berlaku di hari-hari setelahnya, padahal
+ * begitu ada baris yang menunjukkan perubahan (mis. mulai login di Hari 4),
+ * itulah yang seharusnya dipakai untuk Hari 4 dan seterusnya.
+ */
+export function getCurrentRow(history: FacilRow[], todayHari: number): FacilRow | undefined {
+  if (history.length === 0) return undefined;
+  const happened = history.filter((r) => r.hari <= todayHari);
+  const pool = happened.length > 0 ? happened : history;
+  return pool.reduce((latest, r) => (r.hari > latest.hari ? r : latest), pool[0]);
+}
+
 export function getFacilitators(rows: FacilRow[]): FacilitatorSummary[] {
   const map = new Map<string, FacilitatorSummary>();
   for (const r of rows) {
@@ -85,6 +111,13 @@ export function getFacilitators(rows: FacilRow[]): FacilitatorSummary[] {
     }
   }
   return Array.from(map.values()).sort((a, b) => a.namaFasil.localeCompare(b.namaFasil));
+}
+
+/** "PNJ-Fasil-45" -> "PNJ". Kode fasil dipakai sebagai proksi kampus/institusi
+ * karena tidak ada kolom "Kampus" terpisah di sheet. */
+export function deriveKampus(kodeFasil: string): string {
+  const match = kodeFasil.match(/^([A-Za-z]+)-/);
+  return match ? match[1] : kodeFasil;
 }
 
 export function sortByRiskDesc(rows: FacilRow[]): FacilRow[] {

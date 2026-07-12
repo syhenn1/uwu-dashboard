@@ -13,7 +13,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="id" className="h-full antialiased">
+    <html lang="id" className="h-full antialiased" suppressHydrationWarning>
       <body className="min-h-full flex flex-col bg-background text-ink-primary">
         <header className="border-b border-border bg-surface">
           <div className="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3">
@@ -27,8 +27,14 @@ export default function RootLayout({
               <Link href="/analisis-massal" className="hover:text-ink-primary">
                 Analisis Massal
               </Link>
+              <Link href="/perbandingan" className="hover:text-ink-primary">
+                Perbandingan
+              </Link>
               <Link href="/anomali" className="hover:text-ink-primary">
                 Anomali
+              </Link>
+              <Link href="/laporan" className="hover:text-ink-primary">
+                Laporan
               </Link>
             </nav>
           </div>

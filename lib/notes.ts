@@ -70,3 +70,36 @@ export function buildNoteRanges(
 export function formatHariRange(r: NoteRange): string {
   return r.hariStart === r.hariEnd ? `Hari ${r.hariStart}` : `Hari ${r.hariStart}-${r.hariEnd}`;
 }
+
+export interface DayActivity {
+  hari: number;
+  catatanAsli: number;
+  belumDiisi: number;
+}
+
+/**
+ * Menghitung jumlah entri kualitatif (bukan blank) yang ditulis tiap hari,
+ * digabung lintas SEMUA fasilitator - dipakai sebagai proxy "aktivitas" pada
+ * tampilan Semua Waktu, karena metrik angka sendiri statis antar hari (lihat
+ * catatan di lib/sheet.ts) sehingga tidak ada tren berarti untuk dihitung
+ * dari situ. Dibatasi 1..uptoHari (hari yang sudah benar-benar terjadi).
+ */
+export function countQualitativeActivityByDay(rows: FacilRow[], uptoHari: number): DayActivity[] {
+  const byDay = new Map<number, DayActivity>();
+  for (let h = 1; h <= uptoHari; h++) byDay.set(h, { hari: h, catatanAsli: 0, belumDiisi: 0 });
+
+  for (const row of rows) {
+    if (row.hari < 1 || row.hari > uptoHari) continue;
+    const bucket = byDay.get(row.hari);
+    if (!bucket) continue;
+    for (const field of QUALITATIVE_FIELDS) {
+      const v = row[field.key];
+      const text = typeof v === "string" ? v.trim() : "";
+      if (text === "") continue;
+      if (text === "Belum Diisi") bucket.belumDiisi += 1;
+      else bucket.catatanAsli += 1;
+    }
+  }
+
+  return Array.from(byDay.values());
+}
