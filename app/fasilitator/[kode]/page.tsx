@@ -171,6 +171,7 @@ export default async function FacilitatorDetailPage({
           key={`${kode}-${hari}-${mode}`}
           row={currentRow}
           history={history}
+          compliance={compliance}
           hari={hari}
           mode={mode}
           prevFacilitator={prevFacilitator}

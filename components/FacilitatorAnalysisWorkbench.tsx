@@ -6,7 +6,11 @@ import type { FacilRow } from "@/lib/types";
 import { QUALITATIVE_FIELDS } from "@/lib/notes";
 import { KEY_TO_HEADER } from "@/lib/columns";
 import { KENDALA_ACTIVE_FROM_DAY, classifyKendalaText } from "@/lib/compliance";
+import type { CheckpointCompliance } from "@/lib/compliance";
+import { classifySeverity } from "@/lib/severity";
+import { findIndicator } from "@/lib/knowledge/checkpoints";
 import { TIER_STYLES } from "./SeverityBadge";
+import { InfoTooltip } from "./InfoTooltip";
 
 const KENDALA_FIELDS = QUALITATIVE_FIELDS.filter((f) => f.key !== "analisis" && f.key !== "catatanAdmin");
 
@@ -27,6 +31,56 @@ interface KendalaDisplay {
   state: KendalaState;
   /** true kalau `text` teks sintetis buatan UI (bukan isi asli sel sheet) - dipakai buat gaya italic. */
   isPlaceholder: boolean;
+  /** Khusus kolom Kendala Komunikasi: pesan status otomatis ("Belum diisi
+   * status komunikasi semua/sebagian sekolah...") yang dipisah keluar dari
+   * `text` - ditampilkan sebagai card kecil di LUAR input field, bukan
+   * dicampur dengan narasi bebas fasilitator. null kalau tidak ada/tidak relevan. */
+  statusNote: string | null;
+}
+
+/** Kolom Kendala Komunikasi bisa berisi DUA hal berbeda digabung dengan
+ * pemisah " | ": narasi kendala asli dari fasilitator (mis. "Kepala sekolah
+ * sulit dihubungi, Jaringan internet sekolah bermasalah"), dan/atau pesan
+ * status kelengkapan data OTOMATIS kalau kolom G (status) kosong untuk
+ * sebagian/semua sekolah hari itu (mis. "Belum diisi status komunikasi
+ * sebagian sekolah (3 dari 20)"). Sheet SENGAJA memisah keduanya pakai " | "
+ * (bukan koma) supaya beda jelas dari narasi asli - dipakai persis di sini
+ * untuk memisah juga: pesan status ditaruh sebagai card kecil di LUAR input
+ * field, narasi asli (kalau ada) tetap di dalam field seperti kolom Kendala
+ * lain. */
+const STATUS_KOMUNIKASI_PATTERN = /^belum\s+diisi\s+status\s+komunikasi\s+(semua|sebagian)\s+sekolah(\s*\(\s*\d+\s*dari\s*\d+\s*\))?\.?$/i;
+
+function extractStatusKomunikasiNote(text: string): { note: string | null; rest: string } {
+  const parts = text
+    .split("|")
+    .map((p) => p.trim())
+    .filter((p) => p !== "");
+  const noteParts = parts.filter((p) => STATUS_KOMUNIKASI_PATTERN.test(p));
+  const restParts = parts.filter((p) => !STATUS_KOMUNIKASI_PATTERN.test(p));
+  return { note: noteParts.length ? noteParts.join(" | ") : null, rest: restParts.join(" | ") };
+}
+
+/** Cari hari terakhir SEBELUM `beforeDay` di mana kolom Kendala Komunikasi
+ * benar-benar menunjukkan fasilitator aktif melapor (narasi kendala asli,
+ * ATAU konfirmasi eksplisit "tidak ada kendala") - BUKAN sekadar "Belum
+ * Diisi"/pesan status "belum diisi status komunikasi ...", yang keduanya
+ * bukan bukti aktivitas. Dipakai supaya "Belum diisi status komunikasi
+ * semua sekolah" dikasih konteks "terakhir kali dia beneran lapor kapan",
+ * bukan cuma bilang "belum diisi" tanpa riwayat. null kalau tidak ketemu
+ * sama sekali di histori yang tersedia (mis. memang belum pernah lapor). */
+function lastActiveCommunicationDay(history: FacilRow[], beforeDay: number): number | null {
+  const byHari = new Map(history.map((r) => [r.hari, r]));
+  for (let h = beforeDay - 1; h >= 1; h--) {
+    const row = byHari.get(h);
+    if (!row) continue;
+    const raw = row.kendalaKomunikasi;
+    const text = typeof raw === "string" ? raw.trim() : "";
+    if (text === "") continue;
+    const { rest } = extractStatusKomunikasiNote(text);
+    const state = classifyKendalaText(rest);
+    if (state === "ada-kendala" || state === "tidak-ada-kendala") return h;
+  }
+  return null;
 }
 
 /** Cari hari paling awal dari rentang hari berturut-turut (berakhir di `hari`)
@@ -67,28 +121,49 @@ function streakStartDay(history: FacilRow[], key: keyof FacilRow, hari: number, 
  */
 function kendalaDisplay(row: FacilRow, history: FacilRow[], key: keyof FacilRow, hari: number): KendalaDisplay {
   const raw = row[key];
-  const text = typeof raw === "string" ? raw.trim() : "";
+  const rawText = typeof raw === "string" ? raw.trim() : "";
   const activeFromDay = KENDALA_ACTIVE_FROM_DAY[key];
   const notYetDue = typeof activeFromDay === "number" && hari < activeFromDay;
 
   if (notYetDue) {
-    return { text: `(belum jatuh tempo - checkpoint terkait mulai Hari ${activeFromDay})`, state: "netral", isPlaceholder: true };
+    return { text: `(belum jatuh tempo - checkpoint terkait mulai Hari ${activeFromDay})`, state: "netral", isPlaceholder: true, statusNote: null };
   }
 
-  const since = text !== "" ? streakStartDay(history, key, hari, text) : hari;
+  const since = rawText !== "" ? streakStartDay(history, key, hari, rawText) : hari;
   const sinceSuffix = since < hari ? ` (sejak Hari ${since})` : "";
+
+  // Pisahkan pesan status otomatis ("Belum diisi status komunikasi ...
+  // sekolah") keluar dari teks yang dievaluasi sebagai kendala - lihat
+  // extractStatusKomunikasiNote. Sisa teks (kalau ada) diperlakukan seperti
+  // kolom Kendala lain (narasi asli fasilitator).
+  let text = rawText;
+  let statusNote: string | null = null;
+  if (key === "kendalaKomunikasi") {
+    const extracted = extractStatusKomunikasiNote(rawText);
+    if (extracted.note) {
+      const lastActive = lastActiveCommunicationDay(history, since);
+      const lastActiveNote = lastActive != null ? `terakhir kali melapor komunikasi: Hari ${lastActive}` : "belum pernah melapor komunikasi di histori yang tersedia";
+      statusNote = `${extracted.note}${sinceSuffix} - ${lastActiveNote}`;
+      text = extracted.rest;
+    }
+  }
 
   const kendalaState = classifyKendalaText(text);
   if (kendalaState === "belum-diisi") {
-    return { text: `(belum diisi fasilitator, padahal checkpoint sudah jatuh tempo)${sinceSuffix}`, state: "belum-diisi", isPlaceholder: true };
+    // Sentinel literal "Belum Diisi" tidak punya info tambahan - tampilkan
+    // placeholder sintetis. Teks lain yang masih lolos ke sini (bukan sentinel
+    // persis) adalah info asli dari sheet - jangan ditimpa.
+    const isLiteralSentinel = text === "Belum Diisi";
+    const displayText = isLiteralSentinel ? "(belum diisi fasilitator, padahal checkpoint sudah jatuh tempo)" : text;
+    return { text: `${displayText}${sinceSuffix}`, state: "belum-diisi", isPlaceholder: isLiteralSentinel, statusNote };
   }
   if (kendalaState === "kosong") {
-    return { text: "(tidak ada kendala / aman)", state: "aman", isPlaceholder: true };
+    return { text: "(tidak ada kendala / aman)", state: "aman", isPlaceholder: true, statusNote };
   }
   if (kendalaState === "tidak-ada-kendala") {
-    return { text: `${text}${sinceSuffix}`, state: "aman", isPlaceholder: false };
+    return { text: `${text}${sinceSuffix}`, state: "aman", isPlaceholder: false, statusNote };
   }
-  return { text: `${text}${sinceSuffix}`, state: "ada-kendala", isPlaceholder: false };
+  return { text: `${text}${sinceSuffix}`, state: "ada-kendala", isPlaceholder: false, statusNote };
 }
 
 const KENDALA_STATE_CONTAINER: Record<KendalaState, string> = {
@@ -97,6 +172,56 @@ const KENDALA_STATE_CONTAINER: Record<KendalaState, string> = {
   "ada-kendala": `${TIER_STYLES.merah.bg} border-status-critical/40`,
   netral: "border-border bg-background",
 };
+
+/** Definisi/sumber "% Sekolah Belum Dihubungi" - dipakai buat tooltip supaya
+ * "5%" itu jelas jawabannya "dari mana": persentase mentah dari kolom LK
+ * Fasil (dihitung fasilitator sendiri terhadap semesta sekolah yang
+ * ditangani di Lembar Kerja), bukan hasil hitung ulang aplikasi ini dari
+ * daftar sekolah individual - makanya tidak bisa ditampilkan "X dari Y
+ * sekolah" persis di sini (beda dari catatan Kendala Komunikasi yang
+ * kadang-kadang sudah menuliskan rinciannya sendiri, mis. "17 dari 20"). */
+const komunikasiIndicatorInfo = findIndicator("pctSekolahBelumDihubungi");
+
+/** Status "sudah/belum menghubungi sekolah" untuk hari yang dilihat - ditaruh
+ * di atas kolom Kendala Komunikasi (bukan bagian isi field-nya) supaya
+ * konteks checkpoint 1 ("Sudah dihubungi") langsung kelihatan tanpa perlu
+ * cek kartu checkpoint terpisah.
+ *
+ * SENGAJA baca dari `compliance` (hasil getCheckpointCompliance, yang sudah
+ * lolos trustLkOkValue di lib/compliance.ts), BUKAN raw row.pctSekolahBelumDihubungi
+ * langsung - kolom itu ber-sumber LK Fasil, jadi 0% "sudah menghubungi semua
+ * sekolah" bisa cuma artefak sheet (belum ada data) kalau kolom Kendala
+ * Komunikasi terkait masih bilang "belum diisi". Tanpa trust-check ini badge
+ * bisa bilang "Sudah menghubungi semua sekolah" padahal Kendala Komunikasi-nya
+ * sendiri persis bilang "Belum diisi status komunikasi semua sekolah". */
+function ContactStatusNote({ compliance }: { compliance: CheckpointCompliance[] }) {
+  const ind = compliance.find((c) => c.group.no === 1)?.indicators.find((i) => i.kolom === "pctSekolahBelumDihubungi");
+  if (!ind) return null;
+
+  const tooltipText = komunikasiIndicatorInfo
+    ? `${komunikasiIndicatorInfo.indicator.definisi} (sumber: ${komunikasiIndicatorInfo.indicator.sumberData ?? "-"}). Persentase mentah dari LK Fasil - dihitung fasilitator sendiri terhadap semesta sekolah yang ditangani, bukan dihitung ulang aplikasi ini.`
+    : undefined;
+
+  if (ind.status === "unknown") {
+    return (
+      <div className="inline-flex w-fit items-center gap-1.5 rounded bg-status-unknown/10 px-2 py-1 text-[11px] font-medium text-ink-muted">
+        ⚠ Status hubungi belum bisa dipastikan{ind.note ? ` - ${ind.note}` : ""}
+        {tooltipText && <InfoTooltip text={tooltipText} />}
+      </div>
+    );
+  }
+  const raw = parseFloat(ind.detail);
+  if (Number.isNaN(raw)) return null;
+  const { tier } = classifySeverity(raw, "higherIsWorse");
+  const s = TIER_STYLES[tier];
+  const label = raw === 0 ? "Sudah menghubungi semua sekolah" : `Belum menghubungi ${ind.detail} sekolah`;
+  return (
+    <div className={`inline-flex w-fit items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium ${s.bg} ${s.text}`}>
+      {label}
+      {tooltipText && <InfoTooltip text={tooltipText} />}
+    </div>
+  );
+}
 
 interface FacilitatorRef {
   kodeFasil: string;
@@ -120,6 +245,7 @@ function facilHref(kodeFasil: string, hari: number, mode: "alltime" | "harian"):
 export function FacilitatorAnalysisWorkbench({
   row,
   history,
+  compliance,
   hari,
   mode,
   prevFacilitator,
@@ -127,6 +253,7 @@ export function FacilitatorAnalysisWorkbench({
 }: {
   row: FacilRow;
   history: FacilRow[];
+  compliance: CheckpointCompliance[];
   hari: number;
   mode: "alltime" | "harian";
   prevFacilitator: FacilitatorRef | null;
@@ -220,6 +347,12 @@ export function FacilitatorAnalysisWorkbench({
             return (
               <label key={String(f.key)} className="flex flex-col gap-1 text-xs text-ink-secondary">
                 {KEY_TO_HEADER[f.key] ?? f.label}
+                {f.key === "kendalaKomunikasi" && <ContactStatusNote compliance={compliance} />}
+                {d.statusNote && (
+                  <div className={`inline-flex w-fit items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium ${TIER_STYLES.kuning.bg} ${TIER_STYLES.kuning.text}`}>
+                    {d.statusNote}
+                  </div>
+                )}
                 <textarea
                   readOnly
                   value={d.text}
