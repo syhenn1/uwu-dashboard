@@ -30,6 +30,9 @@ export default function RootLayout({
               <Link href="/perbandingan" className="hover:text-ink-primary">
                 Perbandingan
               </Link>
+              <Link href="/progres-dokumen" className="hover:text-ink-primary">
+                Progres Dokumen
+              </Link>
               <Link href="/anomali" className="hover:text-ink-primary">
                 Anomali
               </Link>

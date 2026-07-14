@@ -1,4 +1,4 @@
-import { activeCheckpoints } from "./knowledge/checkpoints";
+import { activeCheckpoints, CHECKPOINT_GROUPS } from "./knowledge/checkpoints";
 import type { CheckpointGroup, CheckpointIndicator } from "./knowledge/checkpoints";
 import { KEY_TO_HEADER } from "./columns";
 import { LK_APLIKASI_PAIRS, MISMATCH_THRESHOLD } from "./anomalies";
@@ -39,8 +39,9 @@ export interface CheckpointCompliance {
    * supaya jelas kalau memang sumber datanya beda (bukan LK "bilang aman" - LK-nya cuma belum
    * punya catatan apapun untuk checkpoint ini). `text: null` = kolom kendalanya kosong total.
    * `isIssue` = kendala ini genuinely melaporkan masalah dari hasil wawancara ke sekolah (bukan
-   * placeholder "belum diisi" ataupun kosong) - dipakai sebagai status LK tersirat: ada kendala
-   * berarti sisi LK-nya "Belum", tanpa perlu kolom status LK terpisah. */
+   * placeholder "belum diisi", dan bukan juga konfirmasi eksplisit "tidak ada kendala"/kosong -
+   * keduanya BUKAN laporan masalah) - dipakai sebagai status LK tersirat: ada kendala berarti
+   * sisi LK-nya "Belum", tanpa perlu kolom status LK terpisah. */
   kendala?: { label: string; text: string | null; isIssue: boolean };
   /** true kalau Aplikasi bilang "sesuai" (tidak ada gating indicator yang violation/unknown) tapi
    * hasil wawancara LK ke sekolah (kolom Kendala) justru melaporkan masalah nyata - dua sumber data
@@ -100,10 +101,79 @@ const KENDALA_BY_CHECKPOINT: Partial<Record<number, keyof FacilRow>> = {
   14: "kendalaPenyepakatanRAB",
 };
 
+/** Kebalikan KENDALA_BY_CHECKPOINT: kolom Kendala -> hari paling awal
+ * checkpoint terkait jatuh tempo (kalau kolomnya menaungi >1 checkpoint,
+ * mis. Panlak/Format Template di checkpoint 3 & 4, dipakai yang PALING
+ * AWAL). Diekspor untuk dipakai UI (FacilitatorAnalysisWorkbench) supaya
+ * kolom Kendala yang masih kosong SEBELUM checkpoint terkait jatuh tempo
+ * tidak disalahartikan sebagai "belum diisi padahal harusnya sudah" - itu
+ * memang belum relevan sama sekali, beda dari kosong SETELAH jatuh tempo
+ * (yang juga bukan otomatis masalah - kosong = tidak ada kendala/aman;
+ * yang jadi sinyal masalah adalah kalau selnya literal "Belum Diisi"). */
+export const KENDALA_ACTIVE_FROM_DAY: Partial<Record<keyof FacilRow, number>> = (() => {
+  const result: Partial<Record<keyof FacilRow, number>> = {};
+  for (const group of CHECKPOINT_GROUPS) {
+    const kendalaKey = KENDALA_BY_CHECKPOINT[group.no];
+    if (!kendalaKey) continue;
+    const existing = result[kendalaKey];
+    if (existing === undefined || group.activeFromDay < existing) result[kendalaKey] = group.activeFromDay;
+  }
+  return result;
+})();
+
 /** Frasa yang menandakan admin/fasilitator sendiri bilang datanya belum diisi -
  * ditemukan langsung di kasus nyata: "Panlak belum diisi, Format/Template
- * dokumen belum diisi" pada fasilitator yang % masalahnya kebaca 0.00%. */
-const BELUM_DIISI_PATTERN = /belum\s*(di\s*)?isi|belum\s+mengisi|belum\s+ada\s+data|kosong/i;
+ * dokumen belum diisi" pada fasilitator yang % masalahnya kebaca 0.00%.
+ * Sengaja TIDAK menyertakan kata "kosong" berdiri sendiri - itu juga jawaban
+ * valid untuk "tidak ada kendala" (mis. fasilitator menulis "Kosong" sebagai
+ * jawaban kolom Kendala), bukan berarti kolomnya belum sungguh diisi. Sentinel
+ * pasti untuk "belum diisi" di sheet ini adalah string "Belum Diisi" (lihat
+ * lib/notes.ts, lib/anomalies.ts, lib/prompts.ts). */
+const BELUM_DIISI_PATTERN = /belum\s*(di\s*)?isi|belum\s+mengisi|belum\s+ada\s+data/i;
+
+/** Checkpoint 3 (Panlak) & 4 (Format/Template) berbagi SATU kolom Kendala
+ * ("Kendala Memiliki Panlak/Format/Template Dokumen") yang bisa melaporkan
+ * kedua sub-item sekaligus dalam satu kalimat gabungan, mis. "Panlak belum
+ * diisi, Format/Template dokumen belum diisi". BELUM_DIISI_PATTERN saja tidak
+ * cukup dipakai apa adanya di sini - itu bakal bikin checkpoint 3 ikut
+ * didistrust hanya karena KLAUSA Format/Template-nya yang belum diisi
+ * (padahal Panlak-nya sendiri sudah), atau sebaliknya. Dicocokkan per-klausa
+ * (dipisah koma/titik/titik koma) + kata kunci sub-item supaya distrust cuma
+ * berlaku untuk sub-item yang benar-benar disebut belum diisi. */
+const KENDALA_SUBITEM_KEYWORD: Partial<Record<number, RegExp>> = {
+  3: /panlak/i,
+  4: /format\s*\/?\s*template/i,
+};
+
+function kendalaMatchesForCheckpoint(kendalaVal: string, checkpointNo: number): boolean {
+  const subitemKeyword = KENDALA_SUBITEM_KEYWORD[checkpointNo];
+  if (!subitemKeyword) return BELUM_DIISI_PATTERN.test(kendalaVal);
+  return kendalaVal.split(/[,;.]/).some((clause) => subitemKeyword.test(clause) && BELUM_DIISI_PATTERN.test(clause));
+}
+
+/** Frasa yang secara eksplisit menyatakan TIDAK ADA kendala (beda dari kolom
+ * yang belum diisi sama sekali) - dipakai supaya kolom Kendala yang isinya
+ * cuma konfirmasi "aman" (mis. "Tidak ada kendala", "Kosong", "-", "Nihil")
+ * tidak ikut dianggap sebagai laporan masalah nyata di `isIssue` (lihat
+ * getCheckpointCompliance). Match seluruh isi kolom (bukan substring) supaya
+ * tidak salah tangkap kalimat panjang yang kebetulan diawali "Tidak ada". */
+const TIDAK_ADA_KENDALA_PATTERN = /^((tidak|tdk)\s*ada(\s+(kendala|masalah|hambatan))?|nihil|aman|kosong|-|n\/?a)\.?$/i;
+
+export type KendalaTextState = "kosong" | "belum-diisi" | "tidak-ada-kendala" | "ada-kendala";
+
+/** Mengklasifikasi ISI MENTAH satu sel kolom Kendala (bukan status checkpoint)
+ * jadi 4 kemungkinan: kosong total, placeholder "Belum Diisi", konfirmasi
+ * eksplisit "tidak ada kendala/aman", atau genuinely melaporkan masalah.
+ * Dipakai bareng oleh getCheckpointCompliance (isIssue) dan UI
+ * (FacilitatorAnalysisWorkbench) supaya definisi "ini laporan masalah beneran
+ * atau bukan" satu sumber, tidak dua regex yang bisa drift. */
+export function classifyKendalaText(text: string): KendalaTextState {
+  const trimmed = text.trim();
+  if (trimmed === "") return "kosong";
+  if (BELUM_DIISI_PATTERN.test(trimmed)) return "belum-diisi";
+  if (TIDAK_ADA_KENDALA_PATTERN.test(trimmed)) return "tidak-ada-kendala";
+  return "ada-kendala";
+}
 
 /** Kolom "Hasil LK" yang punya versi pembanding "Aplikasi" - kalau keduanya
  * bertolak belakang jauh, versi LK-nya patut dicurigai, bukan otomatis dipakai. */
@@ -114,15 +184,43 @@ const APLIKASI_COUNTERPART: Partial<Record<keyof FacilRow, keyof FacilRow>> = {
 /**
  * Menilai apakah nilai "ok" (0% masalah / "Sudah") dari sebuah indikator
  * ber-sumber "LK Fasil" layak dipercaya. Sengaja TIDAK hanya mengandalkan
- * "Fasil Belum Login LK" - itu cuma satu dari tiga sinyal yang dicek:
- * 1) fasilitator belum login LK sama sekali (indikasi paling kasar/menyeluruh)
- * 2) kolom "Kendala ..." terkait secara eksplisit menyebut "belum diisi"
- *    (menangkap kasus fasilitator SUDAH login tapi bagian ini belum ia isi)
- * 3) kalau ada versi "Aplikasi" pembanding, apakah keduanya konsisten
+ * "Fasil Belum Login LK" - ada tiga sinyal yang dicek, urut dari yang paling kuat:
+ * 1) kalau indikator ini punya versi "Aplikasi" pembanding (APLIKASI_COUNTERPART)
+ *    dan nilainya numerik: selisih jauh (>= MISMATCH_THRESHOLD) jadi sinyal
+ *    distrust tersendiri, TAPI kalau konsisten DAN sama-sama menunjukkan status
+ *    "ok" itu sudah konfirmasi independen (Aplikasi bukan laporan mandiri
+ *    fasilitator, lihat catatan bawah) - langsung dipercaya, tidak perlu lolos
+ *    dua sinyal di bawah lagi.
+ * 2) fasilitator belum login LK sama sekali (indikasi paling kasar/menyeluruh)
+ * 3) kolom "Kendala ..." terkait secara eksplisit menyebut "belum diisi"
+ *    (menangkap kasus fasilitator SUDAH login tapi bagian ini belum ia isi -
+ *    jawaban "tidak ada kendala"/"kosong" TIDAK termasuk di sini, itu jawaban
+ *    valid soal tidak ada masalah, bukan tanda kolom belum diisi). Untuk
+ *    checkpoint yang kolom Kendala-nya menaungi beberapa sub-item sekaligus
+ *    (checkpoint 3 & 4, lihat KENDALA_SUBITEM_KEYWORD), dicocokkan per-klausa
+ *    supaya distrust cuma kena ke sub-item yang benar-benar disebut belum
+ *    diisi, bukan ke keduanya cuma karena salah satunya belum diisi.
  * Kolom ber-sumber "Aplikasi Revit" tidak melalui pengecekan ini karena datanya
  * langsung dari aplikasi, bukan laporan mandiri fasilitator.
  */
 function trustLkOkValue(row: FacilRow, group: CheckpointGroup, ind: CheckpointIndicator): string | null {
+  const counterpartKey = APLIKASI_COUNTERPART[ind.kolom];
+  if (counterpartKey) {
+    const counterpartVal = row[counterpartKey];
+    const rawVal = row[ind.kolom];
+    if (typeof counterpartVal === "number" && typeof rawVal === "number") {
+      const selisih = Math.abs(counterpartVal - rawVal);
+      if (selisih >= MISMATCH_THRESHOLD) {
+        const label = KEY_TO_HEADER[counterpartKey] ?? String(counterpartKey);
+        return `Tidak konsisten dengan "${label}" yang menunjukkan ${counterpartVal}% - versi Hasil LK dan Aplikasi berselisih jauh.`;
+      }
+      const target = ind.polarity === "higherIsBetter" ? 100 : 0;
+      if (counterpartVal === target) {
+        return null;
+      }
+    }
+  }
+
   if (row.fasilBelumLoginLK === "Belum") {
     return "Fasilitator belum login LK sama sekali, jadi kolom ini kemungkinan besar belum sungguh-sungguh terisi (0% bisa jadi default sheet, bukan hasil verifikasi).";
   }
@@ -130,19 +228,9 @@ function trustLkOkValue(row: FacilRow, group: CheckpointGroup, ind: CheckpointIn
   const kendalaKey = KENDALA_BY_CHECKPOINT[group.no];
   if (kendalaKey) {
     const kendalaVal = row[kendalaKey];
-    if (typeof kendalaVal === "string" && BELUM_DIISI_PATTERN.test(kendalaVal)) {
+    if (typeof kendalaVal === "string" && kendalaMatchesForCheckpoint(kendalaVal, group.no)) {
       const label = KEY_TO_HEADER[kendalaKey] ?? String(kendalaKey);
       return `Catatan "${label}" menyebutkan ini belum diisi: "${kendalaVal}".`;
-    }
-  }
-
-  const counterpartKey = APLIKASI_COUNTERPART[ind.kolom];
-  if (counterpartKey) {
-    const counterpartVal = row[counterpartKey];
-    const rawVal = row[ind.kolom];
-    if (typeof counterpartVal === "number" && typeof rawVal === "number" && counterpartVal - rawVal >= 40) {
-      const label = KEY_TO_HEADER[counterpartKey] ?? String(counterpartKey);
-      return `Tidak konsisten dengan "${label}" yang menunjukkan ${counterpartVal}% - versi Hasil LK dan Aplikasi berselisih jauh.`;
     }
   }
 
@@ -220,7 +308,7 @@ export function getCheckpointCompliance(row: FacilRow, todayHari: number): Check
       ? {
           label: KEY_TO_HEADER[kendalaKey] ?? String(kendalaKey),
           text: kendalaTextRaw === "" ? null : kendalaTextRaw,
-          isIssue: kendalaTextRaw !== "" && !BELUM_DIISI_PATTERN.test(kendalaTextRaw),
+          isIssue: classifyKendalaText(kendalaTextRaw) === "ada-kendala",
         }
       : undefined;
 

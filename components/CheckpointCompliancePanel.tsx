@@ -1,10 +1,70 @@
 import type { CheckpointCompliance, IndicatorCompliance } from "@/lib/compliance";
+import type { CheckpointGroup } from "@/lib/knowledge/checkpoints";
+import { indicatorSeverity, TIER_LABEL, TIER_RANK } from "@/lib/severity";
+import type { SeverityTier } from "@/lib/severity";
+import { TIER_STYLES } from "./SeverityBadge";
 
-const STATUS_STYLES = {
-  sesuai: { label: "Sesuai", dot: "bg-status-good", text: "text-status-good" },
-  "belum-sesuai": { label: "Belum sesuai", dot: "bg-status-critical", text: "text-status-critical" },
-  unknown: { label: "Tidak ada data", dot: "bg-status-unknown", text: "text-ink-muted" },
-} as const;
+const STATUS_LABEL = { sesuai: "Sesuai", "belum-sesuai": "Belum sesuai", unknown: "Tidak ada data" } as const;
+const NEUTRAL_STATUS_STYLE = { dot: "bg-status-unknown", text: "text-ink-muted" };
+
+/** Tier hijau TIDAK PERNAH dipakai untuk sesuatu yang masih "violation"/"Belum
+ * Sesuai" - hijau berarti "tidak perlu tindakan", yang kontradiktif kalau
+ * dipasang bareng status yang masih gagal capai target. Kuning jadi lantai
+ * (tier paling ringan yang boleh tampil) untuk kasus begitu - dekat target
+ * tetap ditandai beda dari yang jauh (oranye/merah), tapi tidak pernah
+ * disamarkan jadi "sudah oke". */
+function clampToNonHijau(tier: SeverityTier): SeverityTier {
+  return tier === "hijau" ? "kuning" : tier;
+}
+
+/** Nilai indikator persentase (mis. "89.47%") diwarnai per tingkat keparahan
+ * 4-tingkat (Hijau/Kuning/Oranye/Merah, lihat lib/severity.ts) - BUKAN
+ * otomatis merah cuma karena statusnya "violation"/gagal target. Target
+ * checkpoint di sini memang persis 100% (biner), jadi mis. 89.47% tetap
+ * "Belum Sesuai" secara status, tapi warnanya harus Kuning (dekat target),
+ * bukan disamaratakan semerah indikator yang benar-benar 0%. Untuk indikator
+ * yang masih "violation" (`clampHijau`), tier hijau di-floor ke kuning -
+ * lihat clampToNonHijau. */
+function IndicatorValue({
+  ind,
+  group,
+  fallbackClass,
+  clampHijau = false,
+}: {
+  ind: IndicatorCompliance;
+  group: CheckpointGroup;
+  fallbackClass: string;
+  clampHijau?: boolean;
+}) {
+  const sev = indicatorSeverity(ind, group);
+  if (!sev) return <span className={`font-medium ${fallbackClass}`}>{ind.detail}</span>;
+  const tier = clampHijau ? clampToNonHijau(sev.tier) : sev.tier;
+  const s = TIER_STYLES[tier];
+  return (
+    <>
+      <span className={`font-medium ${s.text}`}>{ind.detail}</span>
+      <span className={`ml-1 text-[10px] font-semibold uppercase tracking-wide ${s.text}`}>[{TIER_LABEL[tier]}]</span>
+    </>
+  );
+}
+
+/** Warna badge status checkpoint (dot + teks) - untuk "belum-sesuai", dipakai
+ * tingkat keparahan TERBURUK di antara indikator gating yang violation, BUKAN
+ * selalu merah. Enum tanpa gradasi (mis. "Fasil Belum Login LK" = "Belum")
+ * dianggap merah (tidak ada versi "dekat tapi belum" untuk kolom begitu).
+ * Hijau di-floor ke kuning (clampToNonHijau) - badge "Belum Sesuai" tidak
+ * boleh pernah tampil hijau, itu klaim "sudah oke" yang salah. */
+function statusStyle(status: CheckpointCompliance["status"], violations: IndicatorCompliance[], group: CheckpointGroup) {
+  if (status !== "belum-sesuai") {
+    return status === "sesuai" ? TIER_STYLES.hijau : NEUTRAL_STATUS_STYLE;
+  }
+  let worst: SeverityTier | null = null;
+  for (const v of violations) {
+    const tier = clampToNonHijau(indicatorSeverity(v, group)?.tier ?? "merah");
+    if (worst === null || TIER_RANK[tier] > TIER_RANK[worst]) worst = tier;
+  }
+  return TIER_STYLES[worst ?? "merah"];
+}
 
 function SourceTag({ source }: { source: IndicatorCompliance["sumberData"] }) {
   if (!source) return null;
@@ -52,10 +112,10 @@ export function CheckpointCompliancePanel({ compliance, todayHari }: { complianc
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
       {compliance.map(({ group, status, indicators, kendala, kendalaMismatch }) => {
-        const s = STATUS_STYLES[status];
         const violations = indicators.filter((i) => i.gating && i.status === "violation");
         const unknowns = indicators.filter((i) => i.gating && i.status === "unknown");
         const info = indicators.filter((i) => !i.gating);
+        const s = statusStyle(status, violations, group);
         return (
           <div key={group.no} className="flex flex-col rounded-xl border border-border bg-surface p-3.5 shadow-sm">
             <div className="flex items-center justify-between gap-2">
@@ -65,7 +125,7 @@ export function CheckpointCompliancePanel({ compliance, todayHari }: { complianc
               </span>
               <span className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium ${s.text}`}>
                 <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} aria-hidden />
-                {s.label}
+                {STATUS_LABEL[status]}
               </span>
             </div>
 
@@ -82,7 +142,7 @@ export function CheckpointCompliancePanel({ compliance, todayHari }: { complianc
                   <li key={v.kolom} className="flex items-start gap-1.5">
                     <SourceTag source={v.sumberData} />
                     <span>
-                      {v.label}: <span className="font-medium text-status-critical">{v.detail}</span>
+                      {v.label}: <IndicatorValue ind={v} group={group} fallbackClass="text-status-critical" clampHijau />
                       <ComparisonNote ind={v} />
                     </span>
                   </li>
@@ -112,7 +172,7 @@ export function CheckpointCompliancePanel({ compliance, todayHari }: { complianc
                     <li key={v.kolom} className="flex items-start gap-1.5">
                       <SourceTag source={v.sumberData} />
                       <span>
-                        {v.label}: <span className="font-medium text-ink-primary">{v.detail}</span>
+                        {v.label}: <IndicatorValue ind={v} group={group} fallbackClass="text-ink-primary" />
                         <ComparisonNote ind={v} />
                       </span>
                     </li>

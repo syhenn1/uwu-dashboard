@@ -31,13 +31,23 @@ export const LK_APLIKASI_PAIRS: Array<{ lk: keyof FacilRow; aplikasi: keyof Faci
 export const MISMATCH_THRESHOLD = 40;
 
 /** Kolom "% masalah" ber-sumber LK Fasil yang punya kolom Kendala terkait -
- * dipakai untuk mendeteksi 0% yang dikontradiksi catatan "belum diisi". */
-const ZERO_CHECKS: Array<{ kolom: keyof FacilRow; kendala: keyof FacilRow }> = [
-  { kolom: "pctTidakPunyaPanlak", kendala: "kendalaPanlakFormatTemplate" },
-  { kolom: "pctTidakPunyaFormatTemplate", kendala: "kendalaPanlakFormatTemplate" },
+ * dipakai untuk mendeteksi 0% yang dikontradiksi catatan "belum diisi".
+ * "kendalaPanlakFormatTemplate" menaungi DUA kolom sekaligus (Panlak &
+ * Format/Template) - satu catatan gabungan bisa bilang mis. "Panlak belum
+ * diisi, Format/Template dokumen belum diisi". `subitemKeyword` dipakai untuk
+ * mencocokkan per-klausa supaya "Format/Template belum diisi" saja tidak ikut
+ * menuduh Panlak-nya kontradiksi juga (dan sebaliknya) - lihat matchesKendala. */
+const ZERO_CHECKS: Array<{ kolom: keyof FacilRow; kendala: keyof FacilRow; subitemKeyword?: RegExp }> = [
+  { kolom: "pctTidakPunyaPanlak", kendala: "kendalaPanlakFormatTemplate", subitemKeyword: /panlak/i },
+  { kolom: "pctTidakPunyaFormatTemplate", kendala: "kendalaPanlakFormatTemplate", subitemKeyword: /format\s*\/?\s*template/i },
   { kolom: "pctTidakPunyaPerencanaLK", kendala: "kendalaMendapatkanPerencana" },
   { kolom: "pctDapodikTidakSesuaiBelumUpdate", kendala: "kendalaUpdateDapodik" },
 ];
+
+function matchesKendala(kendalaVal: string, subitemKeyword?: RegExp): boolean {
+  if (!subitemKeyword) return BELUM_DIISI_PATTERN.test(kendalaVal);
+  return kendalaVal.split(/[,;.]/).some((clause) => subitemKeyword.test(clause) && BELUM_DIISI_PATTERN.test(clause));
+}
 
 function label(kolom: keyof FacilRow): string {
   return KEY_TO_HEADER[kolom] ?? String(kolom);
@@ -102,7 +112,7 @@ export function detectFacilitatorAnomalies(history: FacilRow[], todayHari: numbe
     for (const check of ZERO_CHECKS) {
       const val = latest[check.kolom];
       const kendala = latest[check.kendala];
-      if (val === 0 && typeof kendala === "string" && BELUM_DIISI_PATTERN.test(kendala)) {
+      if (val === 0 && typeof kendala === "string" && matchesKendala(kendala, check.subitemKeyword)) {
         items.push({
           type: "contradicted_zero",
           severity: "sedang",

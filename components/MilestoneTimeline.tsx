@@ -1,5 +1,7 @@
 import { CHECKPOINT_GROUPS } from "@/lib/knowledge/checkpoints";
+import type { CheckpointIndicator } from "@/lib/knowledge/checkpoints";
 import type { CheckpointCompliance, IndicatorCompliance } from "@/lib/compliance";
+import type { CheckpointSourceData } from "@/lib/types";
 
 type SimpleStatus = "sesuai" | "belum-sesuai" | "unknown";
 
@@ -22,14 +24,93 @@ const STATUS_TEXT_SM: Record<SimpleStatus, string> = {
   unknown: "text-ink-muted",
 };
 
-function parsePercent(detail: string): number | null {
-  const m = detail.match(/-?\d+(\.\d+)?/);
-  return m ? parseFloat(m[0]) : null;
+const READING_TEXT_SM: Record<Reading["status"], string> = {
+  ok: "text-status-good",
+  violation: "text-status-critical",
+  unknown: "text-ink-muted",
+};
+
+type Source = Exclude<CheckpointSourceData, null>;
+
+const SOURCE_ORDER: Source[] = ["LK Fasil", "Aplikasi Revit"];
+const SOURCE_LABEL: Record<Source, string> = { "LK Fasil": "LK", "Aplikasi Revit": "Aplikasi" };
+
+/** Satu "bacaan" kepatuhan dari satu sumber data (LK atau Aplikasi), dinormalisasi
+ * jadi skala "makin tinggi makin lengkap/baik" (0-100) supaya kedua sumber bisa
+ * dibandingkan apel-ke-apel walau polaritas kolom aslinya beda-beda. */
+interface Reading {
+  status: "ok" | "violation" | "unknown";
+  completionPct: number | null;
 }
 
-function statusFromPercent(value: number | null): SimpleStatus {
-  if (value == null) return "unknown";
-  return value === 0 ? "sesuai" : "belum-sesuai";
+const READING_SEVERITY: Record<Reading["status"], number> = { ok: 0, unknown: 1, violation: 2 };
+
+/** Pilih bacaan yang lebih "parah" antara dua bacaan sumber yang sama - dipakai
+ * saat satu checkpoint punya beberapa indikator gating dari sumber yang sama
+ * (mis. Dokumen Admin/Teknis), sesuai keputusan "tampilkan nilai gating
+ * terburuk" bukan rata-rata atau tiap kolom terpisah. */
+function worseReading(a: Reading, b: Reading): Reading {
+  if (READING_SEVERITY[b.status] !== READING_SEVERITY[a.status]) {
+    return READING_SEVERITY[b.status] > READING_SEVERITY[a.status] ? b : a;
+  }
+  if (a.status === "violation" && a.completionPct != null && b.completionPct != null) {
+    return b.completionPct < a.completionPct ? b : a;
+  }
+  return a;
+}
+
+/** Completion% (0-100, "makin tinggi makin lengkap") dari satu indikator - dibaca
+ * dari `ind.detail`, yang SELALU menyimpan angka mentah kalau memang ada (lihat
+ * evaluateIndicator() di lib/compliance.ts: distrust hanya mengubah `status` jadi
+ * "unknown", detail mentahnya tidak direset jadi "-"). Sengaja TIDAK nol-kan
+ * completion cuma karena status "unknown" - nilai 0%/"Sudah" yang didowngrade
+ * trustLkOkValue() tetap ada angkanya, cuma tidak dijamin akurat (ditandai warna
+ * abu-abu di UI, bukan disembunyikan jadi "-"). "-" cuma untuk yang MEMANG tidak
+ * ada data mentahnya sama sekali. */
+function completionPct(ind: IndicatorCompliance, polarity: CheckpointIndicator["polarity"]): number | null {
+  if (ind.kolom === "fasilBelumLoginLK") {
+    if (ind.detail === "Sudah") return 100;
+    if (ind.detail === "Belum") return 0;
+    return null;
+  }
+  const m = ind.detail.match(/-?\d+(\.\d+)?/);
+  if (!m) return null;
+  const raw = parseFloat(m[0]);
+  return polarity === "higherIsBetter" ? raw : 100 - raw;
+}
+
+/** Kumpulkan, per checkpoint, satu bacaan terburuk untuk tiap sumber data yang
+ * benar-benar ada (LK dan/atau Aplikasi) - termasuk sumber yang cuma muncul lewat
+ * kolom pembanding (`counterpart`, mis. checkpoint Perencana yang Aplikasi-nya
+ * bukan indikator gating tersendiri di knowledge base, cuma pembanding kolom LK). */
+function buildSourceReadings(group: (typeof CHECKPOINT_GROUPS)[number], entry: CheckpointCompliance | undefined): Map<Source, Reading> {
+  const readings = new Map<Source, Reading>();
+  if (!entry) return readings;
+
+  const merge = (source: Source, reading: Reading) => {
+    const existing = readings.get(source);
+    readings.set(source, existing ? worseReading(existing, reading) : reading);
+  };
+
+  for (const ind of entry.indicators) {
+    if (!ind.gating) continue;
+    const polarity = group.indicators.find((gi) => gi.kolom === ind.kolom)?.polarity;
+
+    if (ind.sumberData) {
+      merge(ind.sumberData, { status: ind.status, completionPct: completionPct(ind, polarity) });
+    }
+
+    if (ind.counterpart) {
+      const counterpartSource: Source = ind.sumberData === "LK Fasil" ? "Aplikasi Revit" : "LK Fasil";
+      const target = polarity === "higherIsBetter" ? 100 : 0;
+      const cVal = ind.counterpart.value;
+      const status: Reading["status"] = cVal == null ? "unknown" : cVal === target ? "ok" : "violation";
+      const pct = cVal == null ? null : polarity === "higherIsBetter" ? cVal : 100 - cVal;
+      merge(counterpartSource, { status, completionPct: pct });
+    }
+  }
+
+  return readings;
 }
 
 type Row =
@@ -82,27 +163,25 @@ function CheckpointRow({
   group: (typeof CHECKPOINT_GROUPS)[number];
   entry: CheckpointCompliance | undefined;
 }) {
-  const pairInd: IndicatorCompliance | undefined = entry?.indicators.find((ind) => ind.gating && ind.counterpart);
   const statusKey: CheckpointCompliance["status"] | "future" = entry ? entry.status : "future";
   const violationCount = entry?.indicators.filter((i) => i.gating && i.status === "violation").length ?? 0;
   const kendalaIssue = entry?.kendala?.isIssue;
-
-  let split: { lkVal: number | null; aplikasiVal: number | null } | null = null;
-  if (pairInd && pairInd.counterpart) {
-    const rawVal = parsePercent(pairInd.detail);
-    const counterpartVal = pairInd.counterpart.value;
-    split =
-      pairInd.sumberData === "LK Fasil" ? { lkVal: rawVal, aplikasiVal: counterpartVal } : { lkVal: counterpartVal, aplikasiVal: rawVal };
+  const readings = buildSourceReadings(group, entry);
+  if (entry?.kendalaMismatch) {
+    // Semua indikator kuantitatif bisa saja "ok", tapi catatan Kendala LK
+    // melaporkan masalah nyata - entry.status sudah didowngrade jadi "unknown"
+    // di compliance.ts, jangan biarkan bacaan per-sumber tetap bilang "Lengkap".
+    // Angkanya sendiri tetap ditampilkan (cuma warnanya jadi abu-abu/unknown).
+    for (const [source, r] of readings) {
+      if (r.status === "ok") readings.set(source, { status: "unknown", completionPct: r.completionPct });
+    }
   }
+  const sources = SOURCE_ORDER.filter((s) => readings.has(s));
 
   return (
     <div className="relative z-10 flex items-start gap-2.5 py-1" title={group.tujuan}>
       <div className="flex w-5 shrink-0 justify-center pt-0.5">
-        <div
-          className={`flex h-5 w-5 items-center justify-center rounded-full border-2 text-[9px] font-bold ${
-            split ? "border-border bg-surface text-ink-secondary" : STATUS_DOT[statusKey]
-          }`}
-        >
+        <div className={`flex h-5 w-5 items-center justify-center rounded-full border-2 text-[9px] font-bold ${STATUS_DOT[statusKey]}`}>
           {group.no}
         </div>
       </div>
@@ -111,15 +190,16 @@ function CheckpointRow({
         <span className="font-medium text-ink-primary">{group.name}</span>
         <span className="text-[10px] text-ink-muted">H{group.activeFromDay}·b{group.bobotTotal}</span>
 
-        {split ? (
-          <>
-            <span className={`font-medium ${STATUS_TEXT_SM[statusFromPercent(split.lkVal)]}`}>
-              LK {split.lkVal != null ? `${split.lkVal}%` : "-"}
-            </span>
-            <span className={`font-medium ${STATUS_TEXT_SM[statusFromPercent(split.aplikasiVal)]}`}>
-              App {split.aplikasiVal != null ? `${split.aplikasiVal}%` : "-"}
-            </span>
-          </>
+        {sources.length > 0 ? (
+          sources.map((s) => {
+            const r = readings.get(s)!;
+            const text = r.status === "ok" ? "Lengkap" : r.completionPct != null ? `${r.completionPct}%` : "-";
+            return (
+              <span key={s} className={`font-medium ${READING_TEXT_SM[r.status]}`}>
+                {SOURCE_LABEL[s]} {text}
+              </span>
+            );
+          })
         ) : (
           <span className={`font-medium ${entry ? STATUS_TEXT_SM[entry.status === "unknown" ? "unknown" : entry.status] : "text-ink-muted"}`}>
             {entry ? STATUS_LABEL[entry.status] : "Belum jatuh tempo"}

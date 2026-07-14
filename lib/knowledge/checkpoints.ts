@@ -6,9 +6,9 @@ export interface CheckpointIndicator {
   sumberData: CheckpointSourceData;
   bobot: number;
   /** "higherIsWorse" (default) untuk kolom "% masalah" - semakin tinggi semakin
-   * berisiko. "higherIsBetter" untuk kolom seperti "Min (% Dok. ... Terunggah)"
-   * yang mengukur kelengkapan - semakin tinggi semakin baik, jadi kontribusi
-   * risikonya dibalik (100 - nilai) saat dihitung. */
+   * berisiko. "higherIsBetter" untuk kolom seperti "% Sekolah dengan Dok. ...
+   * Terunggah 100% (Lengkap)" yang mengukur kelengkapan - semakin tinggi semakin
+   * baik, jadi kontribusi risikonya dibalik (100 - nilai) saat dihitung. */
   polarity?: "higherIsWorse" | "higherIsBetter";
 }
 
@@ -33,8 +33,14 @@ export const TOTAL_HARI_SIKLUS = 14;
  * checkpoint -> hari-ke -> bobot risiko -> indikator grouping used to compute
  * "Nilai Risiko". Groups No.9-12 (Dokumen Admin Terverifikasi/Sesuai, Dokumen
  * Teknis Terunggah/Terverifikasi) were not fully spelled out in the source
- * table but follow the exact same 4+5=9 bobot pattern as every other
- * "Dokumen ..." checkpoint, using the "Hari Ke" values given in table 1.
+ * table but use the same "Hari Ke" values given in table 1.
+ *
+ * Checkpoint No.8-13 ("Dokumen ..." terunggah/terverifikasi/sesuai) each used
+ * to carry 4 indicators (% Sekolah 100%, Rata-rata, Min, % Sekolah < 90%) with
+ * only Min+<90% (bobot 4+5) gating the status. Per keputusan admin program,
+ * Min/Rata-rata/<90% dianggap tidak perlu - checkpoint ini sekarang cuma
+ * dipatok ke satu indikator "% Sekolah dengan Dok. ... 100%/Terverifikasi/
+ * Sesuai", yang mengambil alih seluruh bobot (9) sebagai gating.
  */
 export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
   {
@@ -97,6 +103,12 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     tujuan: "Menganalisis potensi penyebab tidak tercapainya target checkpoint dokumen yang terunggah teknis.",
     indicators: [
       { kolom: "pctTidakPunyaPerencanaLK", definisi: "C.1 Perencana = Tidak Memiliki", sumberData: "LK Fasil", bobot: 10 },
+      {
+        kolom: "pctTidakPunyaPerencanaAplikasi",
+        definisi: "Versi Aplikasi dari indikator ketersediaan perencana - dibandingkan dengan Hasil LK untuk cek konsistensi pelaporan fasilitator.",
+        sumberData: "Aplikasi Revit",
+        bobot: 0,
+      },
     ],
   },
   {
@@ -118,10 +130,7 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     bobotTotal: 9,
     tujuan: "Memberi peringatan waspada ketika ada sekolah yang dokumen admin terunggahnya di bawah 80%, dan gambaran perlunya pembinaan fasilitator terkait percepatan unggah dokumen oleh sekolah.",
     indicators: [
-      { kolom: "pctDokAdminTerunggahLengkap", definisi: "% sekolah dengan dokumen admin terunggah 100% (lengkap).", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
-      { kolom: "rataDokAdminTerunggah", definisi: "Rata-rata % dokumen admin terunggah di aplikasi.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
-      { kolom: "minDokAdminTerunggah", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
-      { kolom: "pctDokAdminTerunggahDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen admin terunggah < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
+      { kolom: "pctDokAdminTerunggahLengkap", definisi: "% sekolah dengan dokumen admin terunggah 100% (lengkap).", sumberData: "Aplikasi Revit", bobot: 9, polarity: "higherIsBetter" },
     ],
   },
   {
@@ -131,10 +140,7 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     bobotTotal: 9,
     tujuan: "Memberi alert bahwa ada sekolah yang masih banyak dokumen adminnya belum diverifikasi, dan gambaran perlunya pembinaan fasilitator untuk segera memverifikasi dokumen.",
     indicators: [
-      { kolom: "pctDokAdminTerverifikasi", definisi: "% sekolah dengan dokumen admin terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
-      { kolom: "rataDokAdminTerverifikasi", definisi: "Rata-rata % dokumen admin terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
-      { kolom: "minDokAdminTerverifikasi", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
-      { kolom: "pctDokAdminTerverifikasiDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen admin terverifikasi < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
+      { kolom: "pctDokAdminTerverifikasi", definisi: "% sekolah dengan dokumen admin terverifikasi.", sumberData: "Aplikasi Revit", bobot: 9, polarity: "higherIsBetter" },
     ],
   },
   {
@@ -144,10 +150,7 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     bobotTotal: 9,
     tujuan: "Memberi peringatan waspada ketika ada sekolah yang dokumen admin sesuainya di bawah 80%, dan gambaran perlunya pembinaan fasilitator terkait peningkatan kualitas pendampingan dan percepatan verifikasi.",
     indicators: [
-      { kolom: "pctDokAdminSesuai", definisi: "% sekolah dengan dokumen admin sesuai.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
-      { kolom: "rataDokAdminSesuai", definisi: "Rata-rata % dokumen admin sesuai.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
-      { kolom: "minDokAdminSesuai", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
-      { kolom: "pctDokAdminSesuaiDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen admin sesuai < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
+      { kolom: "pctDokAdminSesuai", definisi: "% sekolah dengan dokumen admin sesuai.", sumberData: "Aplikasi Revit", bobot: 9, polarity: "higherIsBetter" },
     ],
   },
   {
@@ -157,10 +160,7 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     bobotTotal: 9,
     tujuan: "Memberi peringatan waspada ketika ada sekolah yang dokumen teknis terunggahnya di bawah 80%, dan gambaran perlunya pembinaan fasilitator terkait percepatan unggah dokumen oleh sekolah.",
     indicators: [
-      { kolom: "pctDokTeknisTerunggahLengkap", definisi: "% sekolah dengan dokumen teknis terunggah 100% (lengkap).", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
-      { kolom: "rataDokTeknisTerunggah", definisi: "Rata-rata % dokumen teknis terunggah.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
-      { kolom: "minDokTeknisTerunggah", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
-      { kolom: "pctDokTeknisTerunggahDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen teknis terunggah < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
+      { kolom: "pctDokTeknisTerunggahLengkap", definisi: "% sekolah dengan dokumen teknis terunggah 100% (lengkap).", sumberData: "Aplikasi Revit", bobot: 9, polarity: "higherIsBetter" },
     ],
   },
   {
@@ -170,10 +170,7 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     bobotTotal: 9,
     tujuan: "Memberi alert bahwa ada sekolah yang masih banyak dokumen teknisnya belum diverifikasi, dan gambaran perlunya pembinaan fasilitator untuk segera memverifikasi dokumen.",
     indicators: [
-      { kolom: "pctDokTeknisTerverifikasi", definisi: "% sekolah dengan dokumen teknis terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
-      { kolom: "rataDokTeknisTerverifikasi", definisi: "Rata-rata % dokumen teknis terverifikasi.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
-      { kolom: "minDokTeknisTerverifikasi", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
-      { kolom: "pctDokTeknisTerverifikasiDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen teknis terverifikasi < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
+      { kolom: "pctDokTeknisTerverifikasi", definisi: "% sekolah dengan dokumen teknis terverifikasi.", sumberData: "Aplikasi Revit", bobot: 9, polarity: "higherIsBetter" },
     ],
   },
   {
@@ -183,10 +180,7 @@ export const CHECKPOINT_GROUPS: CheckpointGroup[] = [
     bobotTotal: 9,
     tujuan: "Memberi peringatan waspada ketika ada sekolah yang dokumen teknis sesuainya di bawah 80%, dan gambaran perlunya pembinaan fasilitator terkait peningkatan kualitas pendampingan dan percepatan verifikasi.",
     indicators: [
-      { kolom: "pctDokTeknisSesuai", definisi: "% sekolah dengan dokumen teknis sesuai.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
-      { kolom: "rataDokTeknisSesuai", definisi: "Rata-rata % dokumen teknis sesuai.", sumberData: "Aplikasi Revit", bobot: 0, polarity: "higherIsBetter" },
-      { kolom: "minDokTeknisSesuai", definisi: "Export Detail Dokumen di Menu Export - nilai minimum antar sekolah.", sumberData: "Aplikasi Revit", bobot: 4, polarity: "higherIsBetter" },
-      { kolom: "pctDokTeknisSesuaiDibawah90", definisi: "Export Detail Dokumen di Menu Export - % sekolah dengan dokumen teknis sesuai < 90%.", sumberData: "Aplikasi Revit", bobot: 5 },
+      { kolom: "pctDokTeknisSesuai", definisi: "% sekolah dengan dokumen teknis sesuai.", sumberData: "Aplikasi Revit", bobot: 9, polarity: "higherIsBetter" },
     ],
   },
   {
@@ -212,7 +206,6 @@ export const DESCRIPTIVE_COLUMNS: Partial<Record<keyof FacilRow, string>> = {
   namaKoor: "Nama koordinator yang membawahi fasilitator ini.",
   penyusunanDokAdminTerkendala: "Catatan hasil LK terkait kendala penyusunan dokumen admin.",
   penyusunanDokTeknisTerkendala: "Catatan hasil LK terkait kendala penyusunan dokumen teknis.",
-  pctTidakPunyaPerencanaAplikasi: "Versi aplikasi dari indikator ketersediaan perencana (bandingkan dengan hasil LK untuk cek konsistensi pelaporan fasilitator).",
   kendalaKomunikasi: "Penjelasan bebas dari fasilitator/admin soal kendala komunikasi dengan sekolah.",
   kendalaPanlakFormatTemplate: "Penjelasan bebas soal kendala memiliki Panlak/format/template dokumen.",
   kendalaMendapatkanPerencana: "Penjelasan bebas soal kendala mendapatkan perencana.",

@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getFacilRows, getTodayHari } from "@/lib/sheet";
-import { getRowsForFacilitator, riskLevel, getEffectiveRisk, getCurrentRow } from "@/lib/metrics";
+import { getRowsForFacilitator, riskLevel, getEffectiveRisk, getCurrentRow, getFacilitators } from "@/lib/metrics";
 import { getCheckpointCompliance, countNonCompliant } from "@/lib/compliance";
 import { buildNoteRanges, formatHariRange, QUALITATIVE_FIELDS } from "@/lib/notes";
 import { detectFacilitatorAnomalies } from "@/lib/anomalies";
@@ -10,8 +10,9 @@ import type { FacilRow } from "@/lib/types";
 import { DaySelector } from "@/components/DaySelector";
 import { ModeToggle } from "@/components/ModeToggle";
 import { TrendChart } from "@/components/TrendChart";
+import { FacilDocumentFunnel } from "@/components/DocumentProgressFunnel";
 import { FacilMetricsList } from "@/components/FacilMetricsList";
-import { AnalysisPanel } from "@/components/AnalysisPanel";
+import { FacilitatorAnalysisWorkbench } from "@/components/FacilitatorAnalysisWorkbench";
 import { RiskBadge } from "@/components/RiskBadge";
 import { CheckpointCompliancePanel } from "@/components/CheckpointCompliancePanel";
 import { AnomalyList } from "@/components/AnomalyList";
@@ -65,8 +66,23 @@ export default async function FacilitatorDetailPage({
   const unfilled = buildNoteRanges(history, QUALITATIVE_FIELDS, (text) => text === "Belum Diisi");
   const anomalies = detectFacilitatorAnomalies(history, todayHari);
 
+  // Daftar terurut nama - dipakai untuk navigasi Sebelumnya/Selanjutnya, supaya
+  // admin bisa review kendala & isi Analisis satu fasilitator demi satu tanpa
+  // harus balik ke Dashboard tiap kali pindah.
+  const allFacilitators = getFacilitators(rows);
+  const facilIndex = allFacilitators.findIndex((f) => f.kodeFasil === kode);
+  const prevFacilitator = facilIndex > 0 ? allFacilitators[facilIndex - 1] : null;
+  const nextFacilitator = facilIndex >= 0 && facilIndex < allFacilitators.length - 1 ? allFacilitators[facilIndex + 1] : null;
+
   return (
-    <div className="flex flex-col gap-4">
+    // Halaman ini butuh lebar penuh layar (bukan max-w-6xl bawaan <main> di
+    // layout.tsx) - 3 kolom (sidebar kiri + konten + panel Analisis kanan)
+    // kalau dipaksa ke 1152px jadi sempit. Trik "full-bleed": lebar 100vw,
+    // dipusatkan ulang lewat left-1/2 + -translate-x-1/2, supaya keluar dari
+    // batas max-width & centering parent-nya tanpa mengubah layout.tsx global
+    // (yang masih dipakai halaman lain).
+    <div className="relative left-1/2 w-screen -translate-x-1/2 px-4 sm:px-6 lg:px-8">
+      <div className="flex flex-col gap-4">
       <div>
         <Link href="/" className="text-sm text-series-1 hover:underline">
           ← Kembali ke Dashboard
@@ -86,7 +102,7 @@ export default async function FacilitatorDetailPage({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_1fr] lg:items-start">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)_360px] lg:items-start">
         <div className="flex flex-col gap-4 lg:sticky lg:top-4">
           <ModeToggle mode={mode} basePath={`/fasilitator/${kode}`} />
           {mode === "harian" && (
@@ -103,6 +119,19 @@ export default async function FacilitatorDetailPage({
 
         <div className="flex min-w-0 flex-col gap-4">
           <TrendChart history={history} />
+
+          <div>
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h2 className="text-sm font-semibold text-ink-primary">Progres Dokumen: Terunggah → Terverifikasi → Sesuai</h2>
+              <Link href="/progres-dokumen" className="text-xs text-series-1 hover:underline">
+                Bandingkan semua fasilitator →
+              </Link>
+            </div>
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <FacilDocumentFunnel row={currentRow} kategori="Admin" />
+              <FacilDocumentFunnel row={currentRow} kategori="Teknis" />
+            </div>
+          </div>
 
           <div>
             <h2 className="mb-3 text-sm font-semibold text-ink-primary">
@@ -130,13 +159,6 @@ export default async function FacilitatorDetailPage({
 
           <LkFasilPanel kodeFasil={kode} hari={mode === "alltime" ? undefined : hari} editUrl={getFacilitatorLkEditUrl(kode)} />
 
-          <AnalysisPanel
-            endpoint="/api/analyze/facilitator"
-            payload={mode === "alltime" ? { kodeFasil: kode } : { kodeFasil: kode, hari }}
-            title={mode === "alltime" ? "Analisis AI - Keseluruhan (semua hari)" : `Analisis AI - sampai Hari ${hari}`}
-            buttonLabel="Buat Analisis AI"
-          />
-
           <div>
             <h2 className="mb-3 text-sm font-semibold text-ink-primary">
               Detail Metrik {mode === "alltime" ? "- Semua Checkpoint (kondisi terkini)" : `- Hari ${hari}`}
@@ -144,6 +166,16 @@ export default async function FacilitatorDetailPage({
             <FacilMetricsList row={currentRow} overrideHari={mode === "alltime" ? TOTAL_HARI_SIKLUS : undefined} />
           </div>
         </div>
+
+        <FacilitatorAnalysisWorkbench
+          key={`${kode}-${hari}-${mode}`}
+          row={currentRow}
+          history={history}
+          hari={hari}
+          mode={mode}
+          prevFacilitator={prevFacilitator}
+          nextFacilitator={nextFacilitator}
+        />
       </div>
 
       {(notes.length > 0 || unfilled.length > 0) && (
@@ -180,6 +212,7 @@ export default async function FacilitatorDetailPage({
           )}
         </div>
       )}
+      </div>
     </div>
   );
 }

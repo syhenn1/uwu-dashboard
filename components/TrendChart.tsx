@@ -7,8 +7,8 @@ import { getEffectiveRisk } from "@/lib/metrics";
 const SERIES: Array<{ key: string; label: string; color: string }> = [
   { key: "nilaiRisiko", label: "Nilai Risiko", color: "var(--series-1)" },
   { key: "pctSekolahBelumLoginAplikasi", label: "% Belum Login Aplikasi", color: "var(--series-2)" },
-  { key: "pctDokAdminTerunggahDibawah90", label: "% Dok. Admin Terunggah < 90%", color: "var(--series-3)" },
-  { key: "pctDokTeknisTerunggahDibawah90", label: "% Dok. Teknis Terunggah < 90%", color: "var(--series-5)" },
+  { key: "pctDokAdminTerunggahLengkap", label: "% Sekolah Dok. Admin Terunggah Lengkap", color: "var(--series-3)" },
+  { key: "pctDokTeknisTerunggahLengkap", label: "% Sekolah Dok. Teknis Terunggah Lengkap", color: "var(--series-5)" },
 ];
 
 export function TrendChart({ history }: { history: FacilRow[] }) {
@@ -16,8 +16,8 @@ export function TrendChart({ history }: { history: FacilRow[] }) {
     hari: `H${r.hari}`,
     nilaiRisiko: getEffectiveRisk(r).value,
     pctSekolahBelumLoginAplikasi: typeof r.pctSekolahBelumLoginAplikasi === "number" ? r.pctSekolahBelumLoginAplikasi : null,
-    pctDokAdminTerunggahDibawah90: typeof r.pctDokAdminTerunggahDibawah90 === "number" ? r.pctDokAdminTerunggahDibawah90 : null,
-    pctDokTeknisTerunggahDibawah90: typeof r.pctDokTeknisTerunggahDibawah90 === "number" ? r.pctDokTeknisTerunggahDibawah90 : null,
+    pctDokAdminTerunggahLengkap: typeof r.pctDokAdminTerunggahLengkap === "number" ? r.pctDokAdminTerunggahLengkap : null,
+    pctDokTeknisTerunggahLengkap: typeof r.pctDokTeknisTerunggahLengkap === "number" ? r.pctDokTeknisTerunggahLengkap : null,
   }));
   const anyEstimated = history.some((r) => getEffectiveRisk(r).estimated);
 

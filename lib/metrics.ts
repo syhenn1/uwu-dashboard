@@ -1,5 +1,5 @@
 import type { FacilRow, FacilitatorSummary } from "./types";
-import { activeCheckpoints } from "./knowledge/checkpoints";
+import { activeRiskIndicators } from "./knowledge/riskWeights";
 
 export type RiskLevel = "rendah" | "sedang" | "tinggi" | "unknown";
 
@@ -27,10 +27,13 @@ function indicatorRiskContribution(
 }
 
 /**
- * Estimasi Nilai Risiko (0-100%) dari bobot checkpoint yang SUDAH BISA DINILAI
- * pada hari tsb, dipakai sebagai fallback kalau kolom "Nilai Risiko" di
- * spreadsheet kosong (formula belum terpasang di sheet). Bukan angka resmi
- * dari sheet - selalu tandai sebagai estimasi di UI (lihat getEffectiveRisk).
+ * Estimasi Nilai Risiko (0-100%) dari bobot indikator risiko yang SUDAH BISA
+ * DINILAI pada hari tsb (lihat lib/knowledge/riskWeights.ts - SENGAJA beda
+ * dari indikator yang menggerakkan status checkpoint di panel UI, supaya
+ * angkanya tetap cocok dengan kalkulasi resmi atasan program), dipakai
+ * sebagai fallback kalau kolom "Nilai Risiko" di spreadsheet kosong (formula
+ * belum terpasang di sheet). Bukan angka resmi dari sheet - selalu tandai
+ * sebagai estimasi di UI (lihat getEffectiveRisk).
  *
  * Dinormalisasi terhadap total bobot indikator yang datanya tersedia
  * (bukan total bobot semua checkpoint yang aktif, apalagi total bobot 100
@@ -45,14 +48,12 @@ function indicatorRiskContribution(
 export function computeEstimatedRisk(row: FacilRow): number | null {
   let weightedSum = 0;
   let bobotTerukur = 0;
-  for (const group of activeCheckpoints(row.hari)) {
-    for (const ind of group.indicators) {
-      if (ind.bobot <= 0) continue;
-      const contribution = indicatorRiskContribution(row, ind.kolom, ind.polarity);
-      if (contribution == null) continue;
-      weightedSum += ind.bobot * (contribution / 100);
-      bobotTerukur += ind.bobot;
-    }
+  for (const ind of activeRiskIndicators(row.hari)) {
+    if (ind.bobot <= 0) continue;
+    const contribution = indicatorRiskContribution(row, ind.kolom, ind.polarity);
+    if (contribution == null) continue;
+    weightedSum += ind.bobot * (contribution / 100);
+    bobotTerukur += ind.bobot;
   }
   return bobotTerukur > 0 ? (weightedSum / bobotTerukur) * 100 : null;
 }
@@ -166,7 +167,7 @@ export function summarizeDay(rowsForDay: FacilRow[]): DaySummary {
  * pemilik program (mis. fasilitator berhenti mengisi LK tapi angka tetap sama). */
 export function hasStagnantMetrics(history: FacilRow[], minConsecutiveDays = 4): boolean {
   if (history.length < minConsecutiveDays) return false;
-  const key = (r: FacilRow) => JSON.stringify([r.pctDokAdminTerunggahDibawah90, r.pctDokTeknisTerunggahDibawah90, r.fasilBelumLoginLK]);
+  const key = (r: FacilRow) => JSON.stringify([r.pctDokAdminTerunggahLengkap, r.pctDokTeknisTerunggahLengkap, r.fasilBelumLoginLK]);
   let streak = 1;
   for (let i = 1; i < history.length; i++) {
     if (key(history[i]) === key(history[i - 1])) {

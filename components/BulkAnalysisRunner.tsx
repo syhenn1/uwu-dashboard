@@ -86,6 +86,7 @@ export function BulkAnalysisRunner({ facilitators, days }: { facilitators: Facil
   const [expanded, setExpanded] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "done" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveInfo, setSaveInfo] = useState<{ updated: number; notFound: string[] } | null>(null);
   const cancelRef = useRef(false);
 
   useEffect(() => {
@@ -185,6 +186,7 @@ export function BulkAnalysisRunner({ facilitators, days }: { facilitators: Facil
   async function pushToSheet() {
     setSaveState("saving");
     setSaveError(null);
+    setSaveInfo(null);
     try {
       const items = list
         .filter((e) => e.status === "done")
@@ -196,7 +198,22 @@ export function BulkAnalysisRunner({ facilitators, days }: { facilitators: Facil
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Gagal menyimpan ke spreadsheet.");
-      setSaveState("done");
+
+      const updated = typeof data.updated === "number" ? data.updated : 0;
+      const notFound = Array.isArray(data.notFound) ? data.notFound : [];
+      setSaveInfo({ updated, notFound });
+
+      // Webhook boleh jadi bilang "ok" tapi 0 baris ketemu (mis. karena salah
+      // link spreadsheet/webhook) - itu bukan sukses beneran, jangan disamarkan
+      // jadi pesan hijau biasa.
+      if (updated === 0 && notFound.length > 0) {
+        setSaveState("error");
+        setSaveError(
+          `0 dari ${items.length} tersimpan - semua kombinasi Kode Fasil + Hari tidak ditemukan di spreadsheet tujuan webhook. Kemungkinan WRITE_SHEETS_WEBHOOK_URL mengarah ke spreadsheet yang berbeda dari SHEET_CSV_URL - cek lagi link-nya.`
+        );
+      } else {
+        setSaveState("done");
+      }
     } catch (err) {
       setSaveState("error");
       setSaveError(err instanceof Error ? err.message : "Gagal menyimpan ke spreadsheet.");
@@ -299,8 +316,15 @@ export function BulkAnalysisRunner({ facilitators, days }: { facilitators: Facil
           </p>
         )}
 
-        {saveState === "done" && (
-          <p className="mt-2 text-xs text-status-good">Berhasil disimpan ke spreadsheet.</p>
+        {saveState === "done" && saveInfo && saveInfo.notFound.length === 0 && (
+          <p className="mt-2 text-xs text-status-good">Berhasil disimpan {saveInfo.updated} analisis ke spreadsheet.</p>
+        )}
+        {saveState === "done" && saveInfo && saveInfo.notFound.length > 0 && (
+          <p className="mt-2 text-xs text-status-warning">
+            {saveInfo.updated} tersimpan, {saveInfo.notFound.length} tidak ditemukan di spreadsheet tujuan:{" "}
+            {saveInfo.notFound.slice(0, 5).join(", ")}
+            {saveInfo.notFound.length > 5 ? ` (+${saveInfo.notFound.length - 5} lagi)` : ""}.
+          </p>
         )}
         {saveState === "error" && (
           <p className="mt-2 text-xs text-status-critical">{saveError}</p>

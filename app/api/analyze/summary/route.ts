@@ -17,8 +17,9 @@ export async function POST(req: NextRequest) {
     if (dayRows.length === 0) {
       return NextResponse.json({ error: "Tidak ada data untuk hari ini." }, { status: 404 });
     }
+    const prevDayRows = hari > 1 ? getRowsForDay(rows, hari - 1) : [];
 
-    const messages = buildDailySummaryMessages(dayRows, hari);
+    const messages = buildDailySummaryMessages(dayRows, hari, prevDayRows);
     const result = await callLLM(messages);
     return NextResponse.json({ result });
   } catch (err) {
