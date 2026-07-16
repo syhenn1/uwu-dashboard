@@ -1,0 +1,17 @@
+# npm workspaces - dependencies install here at the root (hoisted), not in
+# each app's own node_modules.
+/node_modules
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# vercel
+.vercel
+node_modules

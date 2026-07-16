@@ -1,0 +1,17 @@
+{
+  "name": "uwu-monorepo",
+  "private": true,
+  "workspaces": [
+    "uwu-project-v1",
+    "uwu-project-v2",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:v1": "npm run dev -w uwu-project-v1",
+    "dev:v2": "npm run dev -w uwu-project-v2",
+    "build:v1": "npm run build -w uwu-project-v1",
+    "build:v2": "npm run build -w uwu-project-v2",
+    "lint:v1": "npm run lint -w uwu-project-v1",
+    "lint:v2": "npm run lint -w uwu-project-v2"
+  }
+}
