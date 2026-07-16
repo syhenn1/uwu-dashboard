@@ -89,20 +89,50 @@ function buildOverallDayDiff(dayRows: FacilRow[], prevDayRows: FacilRow[], hari:
   return lines.join("\n");
 }
 
+function visibleIndicatorsOf(entry: CheckpointCompliance, excludeAplikasi: boolean) {
+  return excludeAplikasi ? entry.indicators.filter((i) => i.sumberData !== "Aplikasi Revit") : entry.indicators;
+}
+
+/** Checkpoint yang jadi acuan "hari ini" - checkpoint yang PERSIS jatuh tempo
+ * di `maxDay` kalau ada, atau (banyak hari dalam siklus 14 hari memang tidak
+ * punya checkpoint sendiri) checkpoint PALING RECENT yang sudah jatuh tempo
+ * (activeFromDay tertinggi yang <= maxDay) sebagai gantinya. Dipakai BERSAMA
+ * oleh buildTodayCheckpointStatus (untuk ditampilkan) dan buildProblemCheckpoints
+ * (untuk DIKECUALIKAN dari daftar "checkpoint lain" supaya checkpoint yang
+ * sama tidak dilaporkan dua kali - sekali sebagai "checkpoint hari ini",
+ * sekali lagi sebagai "checkpoint lain"). */
+function todayOrMostRecentCheckpoints(compliance: CheckpointCompliance[], maxDay: number, excludeAplikasi: boolean): CheckpointCompliance[] {
+  const isVisible = (c: CheckpointCompliance) => visibleIndicatorsOf(c, excludeAplikasi).length > 0;
+  const exact = compliance.filter((c) => c.group.activeFromDay === maxDay && isVisible(c));
+  if (exact.length > 0) return exact;
+
+  const dueSoFar = compliance.filter((c) => c.group.activeFromDay <= maxDay && isVisible(c));
+  if (dueSoFar.length === 0) return [];
+  const mostRecentDay = Math.max(...dueSoFar.map((c) => c.group.activeFromDay));
+  return dueSoFar.filter((c) => c.group.activeFromDay === mostRecentDay);
+}
+
 /** Checkpoint yang SUDAH jatuh tempo dan MASIH Belum Sesuai, dipisah antara
  * yang PERSIS jatuh tempo Hari ini vs yang sudah jatuh tempo di hari-hari
  * SEBELUMNYA - difilter DI KODE (bukan diserahkan ke LLM) supaya checkpoint
  * yang sudah Sesuai/aman PASTI tidak pernah muncul di data yang dikirim ke
  * LLM sama sekali, bukan cuma "diminta untuk dilewati" (yang terbukti kurang
  * reliable diikuti model). Dipakai untuk ringkasan singkat ala WhatsApp yang
- * HANYA melaporkan masalah. */
+ * HANYA melaporkan masalah.
+ *
+ * `todayOrMostRecent` = hasil todayOrMostRecentCheckpoints - checkpoint di
+ * situ SELALU dikecualikan dari daftar "previous" di sini, baik itu benar-
+ * benar jatuh tempo hari ini MAUPUN cuma fallback "paling recent" (kalau
+ * fallback, checkpoint itu sudah dilaporkan lewat poin "checkpoint hari ini"
+ * di buildTodayCheckpointStatus - jangan diulang lagi di sini). */
 function buildProblemCheckpoints(
   compliance: CheckpointCompliance[],
   maxDay: number,
-  excludeAplikasi: boolean
+  excludeAplikasi: boolean,
+  todayOrMostRecent: CheckpointCompliance[]
 ): { today: string; previous: string; previousItems: string[] } {
-  const visibleIndicators = (entry: CheckpointCompliance) =>
-    excludeAplikasi ? entry.indicators.filter((i) => i.sumberData !== "Aplikasi Revit") : entry.indicators;
+  const visibleIndicators = (entry: CheckpointCompliance) => visibleIndicatorsOf(entry, excludeAplikasi);
+  const todayOrMostRecentNos = new Set(todayOrMostRecent.map((c) => c.group.no));
 
   const formatEntry = (entry: CheckpointCompliance): string | null => {
     const visible = visibleIndicators(entry);
@@ -146,17 +176,22 @@ function buildProblemCheckpoints(
   // DAN di poin "checkpoint lain").
   const problems = compliance.filter((c) => c.status === "belum-sesuai" && c.group.no !== 1);
   const todayLines = problems
-    .filter((c) => c.group.activeFromDay === maxDay)
+    .filter((c) => todayOrMostRecentNos.has(c.group.no))
     .map(formatEntry)
     .filter((l): l is string => l !== null);
-  const previousLines = problems
-    .filter((c) => c.group.activeFromDay < maxDay)
-    .map(formatEntry)
-    .filter((l): l is string => l !== null);
-  const previousItems = problems
-    .filter((c) => c.group.activeFromDay < maxDay)
-    .map(compactEntry)
-    .filter((l): l is string => l !== null);
+  // Checkpoint lain diurutkan dari yang PALING BARU jatuh tempo ke yang paling
+  // lama - jadi checkpoint Dokumen Teknis (tenggat paling akhir) disebut duluan,
+  // baru Dokumen Admin, baru Biodata/Perencana dst (tenggat paling awal) di
+  // akhir. Ini kebalikan dari urutan alami CHECKPOINT_GROUPS (yang ascending
+  // by activeFromDay) - koordinator lebih butuh lihat masalah TERBARU dulu,
+  // bukan masalah yang sudah lama diketahui. Checkpoint yang sudah dilaporkan
+  // lewat poin "checkpoint hari ini" (todayOrMostRecentNos, termasuk kalau itu
+  // cuma fallback "paling recent") DIKECUALIKAN supaya tidak dobel.
+  const previousProblems = problems
+    .filter((c) => !todayOrMostRecentNos.has(c.group.no))
+    .sort((a, b) => b.group.activeFromDay - a.group.activeFromDay || b.group.no - a.group.no);
+  const previousLines = previousProblems.map(formatEntry).filter((l): l is string => l !== null);
+  const previousItems = previousProblems.map(compactEntry).filter((l): l is string => l !== null);
 
   return {
     today: todayLines.length ? todayLines.join("\n") : "(checkpoint yang PERSIS jatuh tempo hari ini sudah Sesuai, atau tidak ada checkpoint baru jatuh tempo hari ini)",
@@ -169,20 +204,24 @@ function buildProblemCheckpoints(
  * (termasuk yang sudah Sesuai) - beda dari buildProblemCheckpoints yang
  * SENGAJA cuma berisi yang bermasalah. Dipakai supaya ringkasan WhatsApp
  * tetap kasih konteks "checkpoint hari ini apa" walau kebetulan sudah
- * Sesuai, bukan diam total soal itu. */
-function buildTodayCheckpointStatus(compliance: CheckpointCompliance[], maxDay: number, excludeAplikasi: boolean): string {
-  const today = compliance.filter((c) => {
-    if (c.group.activeFromDay !== maxDay) return false;
-    const visible = excludeAplikasi ? c.indicators.filter((i) => i.sumberData !== "Aplikasi Revit") : c.indicators;
-    return visible.length > 0;
-  });
-  if (today.length === 0) return "(tidak ada checkpoint baru yang jatuh tempo persis hari ini)";
-  return today
-    .map((c) => {
-      const label = c.status === "sesuai" ? "Sesuai" : c.status === "belum-sesuai" ? "Belum Sesuai" : "Tidak Ada Data";
-      return `- [${c.group.no}. ${c.group.name}] ${label}`;
-    })
-    .join("\n");
+ * Sesuai, bukan diam total soal itu.
+ *
+ * `todayOrMostRecent` = hasil todayOrMostRecentCheckpoints - kalau isinya
+ * bukan checkpoint yang PERSIS jatuh tempo di `maxDay` (fallback "paling
+ * recent"), tambahkan catatan itu supaya LLM tidak salah kira ini benar-benar
+ * jatuh tempo hari ini. */
+function buildTodayCheckpointStatus(maxDay: number, todayOrMostRecent: CheckpointCompliance[]): string {
+  const formatStatus = (c: CheckpointCompliance) => {
+    const label = c.status === "sesuai" ? "Sesuai" : c.status === "belum-sesuai" ? "Belum Sesuai" : "Tidak Ada Data";
+    return `- [${c.group.no}. ${c.group.name}] ${label}`;
+  };
+
+  if (todayOrMostRecent.length === 0) return "(belum ada checkpoint yang berlaku sampai hari ini)";
+  const isExactlyToday = todayOrMostRecent[0].group.activeFromDay === maxDay;
+  if (isExactlyToday) return todayOrMostRecent.map(formatStatus).join("\n");
+
+  const mostRecentDay = todayOrMostRecent[0].group.activeFromDay;
+  return `(tidak ada checkpoint baru yang jatuh tempo persis hari ini - checkpoint PALING RECENT adalah yang jatuh tempo Hari ke-${mostRecentDay})\n${todayOrMostRecent.map(formatStatus).join("\n")}`;
 }
 
 /** Hari paling awal (mundur dari `maxDay`) di mana ISI TEKS MENTAH kolom
@@ -222,8 +261,17 @@ function communicationStagnantSinceDay(history: FacilRow[], maxDay: number): num
  * "sebagian X dari Y sekolah" kelihatan jelas, bukan cuma angka persen) +
  * sejak hari berapa TEKS itu (bukan angka persen) terakhir berubah -
  * "Fasil Belum Login LK" TIDAK disertakan sebagai headline karena kurang
- * informatif (cuma bilang Sudah/Belum, tidak bilang sudah berapa lama). */
-function buildCommunicationStatus(compliance: CheckpointCompliance[], history: FacilRow[], maxDay: number): string {
+ * informatif (cuma bilang Sudah/Belum, tidak bilang sudah berapa lama).
+ *
+ * `hasFutureDataAnomaly` = true kalau kolom Kendala Komunikasi kena anomali
+ * "future_data" (ada hari yang belum terjadi tapi sudah terisi, lihat
+ * lib/anomalies.ts) - kalau begitu, streak "identik sejak Hari X" di bawah
+ * SENGAJA tidak dihitung/ditampilkan. Riwayat kolom ini sendiri sudah
+ * ditandai tidak bisa dipercaya, jadi klaim "belum ada progres sejak Hari X"
+ * cuma mengulang ketidakpastian yang sama dengan framing lain (dan Hari X
+ * yang dihasilkan bisa menyesatkan kalau ikut membandingkan ke baris masa
+ * depan yang anomali) - cukup laporkan anomalinya saja. */
+function buildCommunicationStatus(compliance: CheckpointCompliance[], history: FacilRow[], maxDay: number, hasFutureDataAnomaly: boolean): string {
   const comm = compliance.find((c) => c.group.no === 1);
   if (!comm) return "(checkpoint komunikasi belum berlaku pada hari ini)";
   const label = comm.status === "sesuai" ? "Sesuai" : comm.status === "belum-sesuai" ? "Belum Sesuai" : "Tidak Ada Data";
@@ -235,7 +283,10 @@ function buildCommunicationStatus(compliance: CheckpointCompliance[], history: F
   const kendalaText = typeof latest.kendalaKomunikasi === "string" ? latest.kendalaKomunikasi.trim() : "";
   const kendalaNote = kendalaText !== "" ? ` | Isi TEKS Kendala Komunikasi saat ini: "${kendalaText}"` : ` | Kolom Kendala Komunikasi kosong`;
   const since = communicationStagnantSinceDay(history, maxDay);
-  const sinceNote = since < maxDay ? ` - TEKS Kendala Komunikasi ini PERSIS SAMA sejak Hari ke-${since} (tidak berubah, indikasi tidak ada progres komunikasi baru sejak itu)` : "";
+  const sinceNote =
+    !hasFutureDataAnomaly && since < maxDay
+      ? ` - TEKS Kendala Komunikasi ini PERSIS SAMA sejak Hari ke-${since} (tidak berubah, indikasi tidak ada progres komunikasi baru sejak itu)`
+      : "";
   return `[${label}] ${detail}${kendalaNote}${sinceNote}`;
 }
 
@@ -261,14 +312,15 @@ export function buildFacilitatorAnalysisMessages(
   const maxDay = history[history.length - 1].hari;
   const latest = history[history.length - 1];
   const compliance = getCheckpointCompliance(latest, maxDay);
-  const problemCheckpoints = buildProblemCheckpoints(compliance, maxDay, excludeAplikasi);
-  const todayCheckpointStatus = buildTodayCheckpointStatus(compliance, maxDay, excludeAplikasi);
-  const communicationStatus = buildCommunicationStatus(compliance, history, maxDay);
+  const todayOrMostRecent = todayOrMostRecentCheckpoints(compliance, maxDay, excludeAplikasi);
+  const problemCheckpoints = buildProblemCheckpoints(compliance, maxDay, excludeAplikasi, todayOrMostRecent);
+  const todayCheckpointStatus = buildTodayCheckpointStatus(maxDay, todayOrMostRecent);
   // Anomali "future_data" (lihat lib/anomalies.ts) dideteksi dari HISTORY MENTAH
   // yang BELUM dipotong ke todayHari (beda dari `history` param di sini, yang
   // sudah dibatasi API route) - jadi flag-nya dihitung terpisah di route.ts lalu
   // dikirim lewat opsi ini, BUKAN dihitung ulang dari `history` yang sudah kepotong.
   const komunikasiHasFutureDataAnomaly = !!options?.anomalyFields?.has("kendalaKomunikasi");
+  const communicationStatus = buildCommunicationStatus(compliance, history, maxDay, komunikasiHasFutureDataAnomaly);
 
   const exclusionNote = excludeAplikasi
     ? `\n**Mode "Kecualikan Data Aplikasi" AKTIF: seluruh checkpoint/persentase ber-sumber "Aplikasi Revit" (mis. Login Aplikasi, Biodata Terverifikasi, Dokumen Admin/Teknis Terunggah/Terverifikasi/Sesuai, RAB Sepakat) SUDAH SENGAJA dibuang dari data di atas - JANGAN menyebutnya "tidak ada data"/anomali/kekurangan, itu memang disembunyikan sesuai permintaan pengguna. Fokuskan seluruh analisis HANYA pada checkpoint bersumber LK Fasil (Sudah Dihubungi, Panlak, Format/Template, Perencana, Dapodik) dan catatan Kendala kualitatif.**\n`
@@ -308,17 +360,17 @@ Tolong tulis ringkasan SINGKAT untuk dikirim koordinator lewat WhatsApp. FORMAT 
 Solusi: lakukan pembinaan intensif untuk percepatan verifikasi dokumen teknis."
 Contoh yang SALAH (JANGAN seperti ini): "- Dokumen teknis belum ada yang sesuai..." (ada tanda "-" di depan).
 
-Bahasa singkat-padat langsung ke inti, cocok dibaca cepat di chat, BUKAN laporan formal panjang. Tiap poin SATU kalimat pendek (maksimal ~20 kata), TANPA tanda kurung buka-tutup "()" di manapun (pakai koma/titik dua, bukan kurung). KECUALI untuk poin komunikasi dan poin checkpoint hari ini (WAJIB selalu disebut apa adanya termasuk kalau sudah Sesuai), HANYA laporkan checkpoint LAIN yang statusnya Belum Sesuai/bermasalah - checkpoint lain yang Sesuai/aman JANGAN disebut sama sekali. JUMLAH POIN TOTAL itu VARIABEL (tergantung berapa banyak checkpoint bermasalah) - poin komunikasi, poin checkpoint hari ini, dan poin solusi SELALU WAJIB ADA (JANGAN dihilangkan); poin "checkpoint lain" JUMLAHNYA mengikuti PERSIS jumlah item di bagian "Kalimat SIAP PAKAI" di bawah; poin kinerja di paling akhir OPSIONAL. Ikuti urutan berikut persis:
+Bahasa singkat-padat langsung ke inti, cocok dibaca cepat di chat, BUKAN laporan formal panjang. Tiap poin SATU kalimat pendek (maksimal ~20 kata), TANPA tanda kurung buka-tutup "()" di manapun (pakai koma/titik dua, bukan kurung). KECUALI untuk poin komunikasi dan poin checkpoint hari ini (WAJIB selalu disebut apa adanya termasuk kalau sudah Sesuai), HANYA laporkan checkpoint LAIN yang statusnya Belum Sesuai/bermasalah - checkpoint lain yang Sesuai/aman JANGAN disebut sama sekali. JUMLAH POIN TOTAL itu VARIABEL (tergantung berapa banyak checkpoint bermasalah) - poin komunikasi, poin checkpoint hari ini, poin solusi, DAN poin kinerja SELALU WAJIB ADA (JANGAN dihilangkan, JANGAN berhenti di poin solusi begitu saja); poin "checkpoint lain" JUMLAHNYA mengikuti PERSIS jumlah item di bagian "Kalimat SIAP PAKAI" di bawah. Ikuti urutan berikut persis:
 
-POIN KOMUNIKASI (WAJIB SELALU ADA, SATU poin): sebutkan progres komunikasi fasilitator dengan sekolah SUDAH SAMPAI MANA PERSISNYA - dasarkan pada ISI TEKS Kendala Komunikasi yang diberikan di bagian "Status Komunikasi Fasilitator dengan Sekolah" (field "Isi TEKS Kendala Komunikasi saat ini"), BUKAN menebak/menyimpulkan sendiri dari angka persentase. Bedakan dengan jelas: kalau teksnya bilang "semua sekolah" belum dikomunikasikan/belum diisi, baru boleh bilang "belum ada komunikasi ke sekolah"; TAPI kalau teksnya bilang "sebagian sekolah" dengan angka (mis. "3 dari 20"), WAJIB sebutkan angka itu APA ADANYA (mis. "baru 3 dari 20 sekolah yang dikomunikasikan") - JANGAN generalisasi jadi "belum ada komunikasi sama sekali" kalau faktanya sebagian sudah. JANGAN bilang "belum login LK"/"belum login" - itu BUKAN framing yang diinginkan. Kalau catatan itu bilang teks ini "PERSIS SAMA sejak Hari ke-X", WAJIB sertakan "tidak ada progres baru sejak Hari ke-X" di akhir kalimat TANPA tanda kurung (pakai angka Hari yang sudah diberikan, jangan hitung ulang sendiri). Kalau bagian "Status Komunikasi..." di atas ada baris "⚠ ANOMALI TERDETEKSI: kolom Kendala Komunikasi sudah berisi data untuk hari yang belum terjadi", WAJIB tambahkan klausa itu sebagai kendala tambahan di akhir poin ini, TANPA tanda kurung - mis. "..., ANOMALI karena ada data untuk hari yang belum terjadi sehingga tidak bisa dipercaya." JANGAN diam soal ini kalau memang ada.
+POIN KOMUNIKASI (WAJIB SELALU ADA, SATU poin, taruh PALING ATAS/PERTAMA - ini yang menentukan apakah datanya bisa dipercaya/anomali atau tidak, jadi harus dibaca duluan sebelum poin checkpoint): sebutkan progres komunikasi fasilitator dengan sekolah SUDAH SAMPAI MANA PERSISNYA - dasarkan pada ISI TEKS Kendala Komunikasi yang diberikan di bagian "Status Komunikasi Fasilitator dengan Sekolah" (field "Isi TEKS Kendala Komunikasi saat ini"), BUKAN menebak/menyimpulkan sendiri dari angka persentase. Bedakan dengan jelas: kalau teksnya bilang "semua sekolah" belum dikomunikasikan/belum diisi, baru boleh bilang "belum ada komunikasi ke sekolah"; TAPI kalau teksnya bilang "sebagian sekolah" dengan angka (mis. "3 dari 20"), WAJIB sebutkan angka itu APA ADANYA (mis. "baru 3 dari 20 sekolah yang dikomunikasikan") - JANGAN generalisasi jadi "belum ada komunikasi sama sekali" kalau faktanya sebagian sudah. JANGAN bilang "belum login LK"/"belum login" - itu BUKAN framing yang diinginkan. Kalau bagian "Status Komunikasi..." di atas ada baris "⚠ ANOMALI TERDETEKSI: kolom Kendala Komunikasi sudah berisi data untuk hari yang belum terjadi", WAJIB tambahkan klausa itu sebagai kendala tambahan di akhir poin ini, TANPA tanda kurung - mis. "..., ANOMALI karena ada data untuk hari yang belum terjadi sehingga tidak bisa dipercaya." JANGAN diam soal ini kalau memang ada - TAPI kalau baris ANOMALI itu ADA, JANGAN tambahkan klausa "tidak ada progres baru sejak Hari ke-X" ataupun angka hari lain hasil hitung sendiri dari "Tabel Tren Harian" - riwayat kolom ini sudah ditandai tidak bisa dipercaya karena anomali itu, jadi klaim "sejak Hari ke-X" (dari sumber manapun) TIDAK BOLEH disebut, cukup laporkan anomalinya saja. Kalau baris ANOMALI itu TIDAK ADA dan catatan "Status Komunikasi..." bilang teks ini "PERSIS SAMA sejak Hari ke-X", WAJIB sertakan "tidak ada progres baru sejak Hari ke-X" di akhir kalimat TANPA tanda kurung (pakai angka Hari yang sudah diberikan di catatan itu, jangan hitung ulang sendiri dari tabel manapun).
 
-POIN CHECKPOINT HARI INI (WAJIB SELALU ADA, SATU poin): sebutkan checkpoint MANA yang PERSIS jatuh tempo hari ini (pakai bagian "Checkpoint yang PERSIS Jatuh Tempo Hari Ini" di atas) dan statusnya apa adanya. Kalau statusnya Belum Sesuai, lanjutkan jelaskan singkat apa yang kurang - kutip isi Kendala terkait dari fasilitator kalau ada di "Catatan Kualitatif" (fokus ke situ, itu yang ditulis fasilitator, bukan angka Aplikasi), atau sebut angka checkpoint singkat kalau Kendala terkait kosong (detailnya ada di bagian "Checkpoint Bermasalah - Jatuh Tempo PERSIS Hari Ini"). Kalau statusnya SUDAH Sesuai, cukup satu kalimat singkat mengonfirmasi itu positif, JANGAN diperpanjang. Kalau memang tidak ada checkpoint baru jatuh tempo hari ini, bilang itu apa adanya singkat.
+POIN CHECKPOINT HARI INI (WAJIB SELALU ADA, SATU poin, taruh SETELAH poin komunikasi - ini headline checkpoint TERBARU yang harus dicek admin, sebelum masuk ke rincian dokumen-dokumen lain): sebutkan checkpoint MANA yang PERSIS jatuh tempo hari ini (pakai bagian "Checkpoint yang PERSIS Jatuh Tempo Hari Ini" di atas) dan statusnya apa adanya. Kalau statusnya Belum Sesuai, lanjutkan jelaskan singkat apa yang kurang - kutip isi Kendala terkait dari fasilitator kalau ada di "Catatan Kualitatif" (fokus ke situ, itu yang ditulis fasilitator, bukan angka Aplikasi), atau sebut angka checkpoint singkat kalau Kendala terkait kosong (detailnya ada di bagian "Checkpoint Bermasalah - Jatuh Tempo PERSIS Hari Ini"). Kalau statusnya SUDAH Sesuai, cukup satu kalimat singkat mengonfirmasi itu positif, JANGAN diperpanjang. Kalau bagian itu bilang tidak ada checkpoint yang PERSIS jatuh tempo hari ini dan menunjuk ke checkpoint PALING RECENT sebagai gantinya (ditandai catatan "checkpoint PALING RECENT adalah..."), WAJIB sebutkan checkpoint pengganti itu berikut hari jatuh temponya dan statusnya - JANGAN cuma bilang "tidak ada checkpoint jatuh tempo" tanpa menyebut penggantinya. Hanya kalau memang belum ada satupun checkpoint yang berlaku sampai hari ini (fasilitator baru di hari-hari sangat awal), baru bilang itu apa adanya singkat.
 
-POIN CHECKPOINT LAIN (SATU POIN TERPISAH untuk SETIAP item, JANGAN digabung jadi satu poin besar): checkpoint LAIN (bukan yang hari ini, bukan komunikasi) yang masih Belum Sesuai. Bagian "Kalimat SIAP PAKAI - SATU POIN TERPISAH per checkpoint sebelumnya yang bermasalah" di atas berisi daftar bernomor - untuk SETIAP nomor di daftar itu, buat SATU POIN SENDIRI (dipisah baris kosong seperti poin lain), SALIN isi kalimatnya APA ADANYA (boleh rapikan sedikit kata sambung, TAPI JANGAN tambahkan tanda kurung buka-tutup - hilangkan kurung kalau ada, ganti jadi koma/titik dua). WAJIB MUTLAK: JUMLAH POIN yang kamu tulis di sini HARUS SAMA PERSIS dengan jumlah item di daftar itu - HITUNG dulu ada berapa item, jangan lebih jangan kurang. DILARANG KERAS menambahkan checkpoint/nama/angka APAPUN yang TIDAK ADA di daftar itu (walau kamu lihat checkpoint lain di "Tabel Tren Harian" atau "Basis Pengetahuan Checkpoint" - dua bagian itu berisi SEMUA checkpoint termasuk yang sudah Sesuai, BUKAN sumber untuk poin ini). Kalau daftar itu kosong/placeholder "tidak ada checkpoint lain yang masih bermasalah", tulis SATU poin singkat itu saja - DILARANG menghapus semuanya.
+POIN CHECKPOINT LAIN (SATU POIN TERPISAH untuk SETIAP item, JANGAN digabung jadi satu poin besar, taruh SETELAH poin checkpoint hari ini - ini rincian dokumen-dokumen lain, urutannya SUDAH diurutkan dari checkpoint paling baru jatuh tempo ke paling lama, ikuti urutan itu APA ADANYA jangan diacak): checkpoint LAIN (bukan yang hari ini, bukan komunikasi) yang masih Belum Sesuai. Bagian "Kalimat SIAP PAKAI - SATU POIN TERPISAH per checkpoint sebelumnya yang bermasalah" di atas berisi daftar bernomor - untuk SETIAP nomor di daftar itu, buat SATU POIN SENDIRI (dipisah baris kosong seperti poin lain), SALIN isi kalimatnya APA ADANYA (boleh rapikan sedikit kata sambung, TAPI JANGAN tambahkan tanda kurung buka-tutup - hilangkan kurung kalau ada, ganti jadi koma/titik dua). WAJIB MUTLAK: JUMLAH POIN yang kamu tulis di sini HARUS SAMA PERSIS dengan jumlah item di daftar itu - HITUNG dulu ada berapa item, jangan lebih jangan kurang. DILARANG KERAS menambahkan checkpoint/nama/angka APAPUN yang TIDAK ADA di daftar itu (walau kamu lihat checkpoint lain di "Tabel Tren Harian" atau "Basis Pengetahuan Checkpoint" - dua bagian itu berisi SEMUA checkpoint termasuk yang sudah Sesuai, BUKAN sumber untuk poin ini). Kalau daftar itu kosong/placeholder "tidak ada checkpoint lain yang masih bermasalah", tulis SATU poin singkat itu saja - DILARANG menghapus semuanya.
 
-POIN SOLUSI (WAJIB SELALU ADA, SATU poin, taruh setelah semua poin checkpoint): satu poin solusi/tindakan paling penting dan paling actionable untuk koordinator, spesifik ke masalah yang disebut di atas (bukan saran generik) - kalau dari awal tidak ada satupun checkpoint bermasalah, poin ini boleh bilang "tidak ada tindakan mendesak" saja.
+POIN SOLUSI (WAJIB SELALU ADA, SATU poin, taruh setelah semua poin checkpoint, TAPI BUKAN poin PALING AKHIR - masih ada poin kinerja setelahnya): satu poin solusi/tindakan paling penting dan paling actionable untuk koordinator, spesifik ke masalah yang disebut di atas (bukan saran generik) - kalau dari awal tidak ada satupun checkpoint bermasalah, poin ini boleh bilang "tidak ada tindakan mendesak" saja.
 
-POIN KINERJA (OPSIONAL - taruh PALING AKHIR, HANYA tulis kalau memang ada hal relevan ditambahkan): satu kalimat sangat singkat soal kinerja keseluruhan fasilitator ini - JANGAN sebut "Nilai Risiko".`;
+POIN KINERJA (WAJIB SELALU ADA, SATU poin, taruh PALING AKHIR - JANGAN dihilangkan/dilewat walau poin solusi terasa sudah jadi penutup): satu kalimat sangat singkat soal kinerja/pola kerja keseluruhan fasilitator ini sejauh ini (mis. rajin update tapi lambat verifikasi ke sekolah, aktif di Aplikasi tapi checkpoint substantif macet, atau progresnya konsisten baik) - JANGAN sebut "Nilai Risiko", dan JANGAN cuma mengulang poin solusi dengan kata lain.`;
 
   return [
     { role: "system", content: SYSTEM_PROMPT },
