@@ -307,73 +307,66 @@ export function buildFacilitatorAnalysisMessages(
   history: FacilRow[],
   options?: { excludeAplikasi?: boolean; anomalyFields?: Set<keyof FacilRow> }
 ): ChatMessage[] {
-  const excludeAplikasi = options?.excludeAplikasi ?? false;
   if (history.length === 0) throw new Error("Tidak ada data histori untuk fasilitator ini.");
   const maxDay = history[history.length - 1].hari;
   const latest = history[history.length - 1];
-  const compliance = getCheckpointCompliance(latest, maxDay);
-  const todayOrMostRecent = todayOrMostRecentCheckpoints(compliance, maxDay, excludeAplikasi);
-  const problemCheckpoints = buildProblemCheckpoints(compliance, maxDay, excludeAplikasi, todayOrMostRecent);
-  const todayCheckpointStatus = buildTodayCheckpointStatus(maxDay, todayOrMostRecent);
-  // Anomali "future_data" (lihat lib/anomalies.ts) dideteksi dari HISTORY MENTAH
-  // yang BELUM dipotong ke todayHari (beda dari `history` param di sini, yang
-  // sudah dibatasi API route) - jadi flag-nya dihitung terpisah di route.ts lalu
-  // dikirim lewat opsi ini, BUKAN dihitung ulang dari `history` yang sudah kepotong.
-  const komunikasiHasFutureDataAnomaly = !!options?.anomalyFields?.has("kendalaKomunikasi");
-  const communicationStatus = buildCommunicationStatus(compliance, history, maxDay, komunikasiHasFutureDataAnomaly);
-
-  const exclusionNote = excludeAplikasi
-    ? `\n**Mode "Kecualikan Data Aplikasi" AKTIF: seluruh checkpoint/persentase ber-sumber "Aplikasi Revit" (mis. Login Aplikasi, Biodata Terverifikasi, Dokumen Admin/Teknis Terunggah/Terverifikasi/Sesuai, RAB Sepakat) SUDAH SENGAJA dibuang dari data di atas - JANGAN menyebutnya "tidak ada data"/anomali/kekurangan, itu memang disembunyikan sesuai permintaan pengguna. Fokuskan seluruh analisis HANYA pada checkpoint bersumber LK Fasil (Sudah Dihubungi, Panlak, Format/Template, Perencana, Dapodik) dan catatan Kendala kualitatif.**\n`
-    : "";
+  
+  const rawTable = (!latest.raw || Object.keys(latest.raw).length === 0) 
+    ? "(tidak ada data mentah)" 
+    : Object.entries(latest.raw).map(([k, v]) => `- ${k}: ${v}`).join("\n");
 
   const userPrompt = `Fasilitator: ${latest.namaFasil} (${latest.kodeFasil})
 Koordinator: ${latest.namaKoor} (${latest.kodeKoor})
-Data tersedia sampai Hari ke-${maxDay} dari siklus 14 hari.
-${exclusionNote}
-## Basis Pengetahuan Checkpoint (kolom, bobot, definisi)
-${buildKnowledgeSummary(maxDay, excludeAplikasi)}
+Hari ke-${maxDay} dari siklus 14 hari.
 
-## Status Komunikasi Fasilitator dengan Sekolah (Checkpoint 1, apa adanya)
-${communicationStatus}${komunikasiHasFutureDataAnomaly ? '\n⚠ ANOMALI TERDETEKSI: kolom Kendala Komunikasi sudah berisi data untuk HARI YANG BELUM TERJADI (diisi mendahului waktunya) - ini indikasi data tidak bisa dipercaya/kemungkinan diisi asal, WAJIB disebut sebagai kendala di poin komunikasi.' : ""}
+## Tabel Persentase Terkini (Sesuai Log Fasilitator)
+${rawTable}
 
-## Checkpoint yang PERSIS Jatuh Tempo Hari Ini (Hari ke-${maxDay}) - status apa adanya, TERMASUK yang sudah Sesuai
-${todayCheckpointStatus}
-
-## Checkpoint Bermasalah - Jatuh Tempo PERSIS Hari Ini (Hari ke-${maxDay})
-${problemCheckpoints.today}
-
-## Checkpoint Bermasalah - Sudah Jatuh Tempo Sejak Hari-Hari Sebelumnya
-${problemCheckpoints.previous}
-
-## Kalimat SIAP PAKAI - SATU POIN TERPISAH per checkpoint sebelumnya yang bermasalah
-${problemCheckpoints.previousItems.length ? problemCheckpoints.previousItems.map((s, i) => `${i + 1}. ${s}`).join("\n") : "(tidak ada checkpoint lain yang masih bermasalah)"}
-
-## Tabel Tren Harian (konteks tambahan kalau perlu)
-${buildHistoryTable(history, maxDay, excludeAplikasi)}
-
-## Catatan Kualitatif (Kendala / Analisis / Catatan Admin yang sudah ada)
+## Catatan Kualitatif Tambahan
 ${buildQualitativeNotes(history)}
 
-Tolong tulis ringkasan SINGKAT untuk dikirim koordinator lewat WhatsApp. FORMAT WAJIB, JANGAN DILANGGAR: pisahkan tiap poin dengan SATU BARIS KOSONG sungguhan (tekan enter dua kali), dan JANGAN taruh apapun di awal baris tiap poin - LANGSUNG kalimatnya. DILARANG KERAS memulai baris dengan tanda "-" (dash), "*", "•", ataupun angka/penomoran "1." "2." dst - kalau kamu terbiasa pakai "-" di awal baris seperti biasanya, JANGAN, itu PERSIS yang dilarang di sini. Contoh format yang BENAR (dua poin, perhatikan TIDAK ADA "-" ataupun bullet apapun di depan kalimat):
-"Dokumen teknis belum ada yang sesuai, masih 0%.
+Tolong buatkan analisis naratif yang persis meniru gaya penulisan contoh berikut. JANGAN gunakan bullet points, gunakan paragraf deskriptif yang SANGAT SINGKAT, PADAT, dan TO THE POINT (karena ini untuk koordinator yang membaca cepat). Fokuskan analisis PADA DATA TABEL PERSENTASE TERKINI di atas.
 
-Solusi: lakukan pembinaan intensif untuk percepatan verifikasi dokumen teknis."
-Contoh yang SALAH (JANGAN seperti ini): "- Dokumen teknis belum ada yang sesuai..." (ada tanda "-" di depan).
+ATURAN KETAT (WAJIB DIIKUTI):
+1. **DILARANG BERTELE-TELE**: Jangan gunakan frasa basa-basi/analisis kosong seperti "Hal ini menunjukkan bahwa...", "Ini menjadi akar masalah yang signifikan...", "Sementara itu...", atau "Ini menunjukkan komitmen...". Langsung tembak ke angka dan fakta.
+2. **DILARANG MENGULANG FAKTA KEBALIKAN**: Jangan menambahkan kalimat sisa yang tidak perlu (misal: "Sudah sesuai 5%. Sementara yang belum 95%." -> cukup sebut yang 5%).
+3. **UBAH RATA-RATA & MINIMUM % JADI ANGKA**: Koordinator tidak ingin menghitung persentase rata-rata dokumen. Hitung secara estimasi:
+   - Total Dokumen Teknis per sekolah = 6 dokumen.
+   - Total Dokumen Admin per sekolah = 11 dokumen.
+   - *Contoh perhitungan*: Jika "Rata-rata % Dok. Teknis" adalah 50%, kalikan 6 -> tulis "rata-rata 3 dokumen per sekolah (50%)". Jika "Min %" adalah 0%, tulis "progress minimum 0 dokumen (0%)".
+4. **KONTEKS TERVERIFIKASI**: Persentase dokumen terverifikasi (baik teknis/admin) dihitung DARI dokumen yang sudah terunggah, bukan dari total keseluruhan. (Misal jika terverifikasi 80% dan terunggah 15%, artinya "80% dari dokumen yang terunggah sudah terverifikasi"). Jangan salah logika.
+5. **NARASI SEBAB-AKIBAT (ROOT CAUSE)**: Hubungkan kalimat dengan logika sebab-akibat lugas agar akar masalahnya terlihat jelas, terutama jika ada Catatan Kualitatif.
+   - *Contoh 1 (Logika antar indikator)*: "19 sekolah sudah mengunggah 100% dokumen teknisnya. Namun, belum ada satupun dokumen yang diverifikasi fasilitator, yang menyebabkan tidak ada dokumen terverifikasi sesuai."
+   - *Contoh 2 (Kualitatif -> Kuantitatif)*: "Terdapat satu sekolah yang mengundurkan diri (berdasarkan catatan), menyebabkan dokumen maksimal hanya menyentuh progress 95%."
 
-Bahasa singkat-padat langsung ke inti, cocok dibaca cepat di chat, BUKAN laporan formal panjang. Tiap poin SATU kalimat pendek (maksimal ~20 kata), TANPA tanda kurung buka-tutup "()" di manapun (pakai koma/titik dua, bukan kurung). KECUALI untuk poin komunikasi dan poin checkpoint hari ini (WAJIB selalu disebut apa adanya termasuk kalau sudah Sesuai), HANYA laporkan checkpoint LAIN yang statusnya Belum Sesuai/bermasalah - checkpoint lain yang Sesuai/aman JANGAN disebut sama sekali. JUMLAH POIN TOTAL itu VARIABEL (tergantung berapa banyak checkpoint bermasalah) - poin komunikasi, poin checkpoint hari ini, poin solusi, DAN poin kinerja SELALU WAJIB ADA (JANGAN dihilangkan, JANGAN berhenti di poin solusi begitu saja); poin "checkpoint lain" JUMLAHNYA mengikuti PERSIS jumlah item di bagian "Kalimat SIAP PAKAI" di bawah. Ikuti urutan berikut persis:
+Struktur Paragraf yang Wajib Diikuti:
+1. **Pembuka**: Sebutkan apakah hari ini ada checkpoint baru atau masih melanjutkan checkpoint sebelumnya, lalu sebutkan apakah sudah tercapai atau belum.
+2. **Dokumen Teknis**: Sebutkan % sekolah yang sudah sesuai 100%. Lalu % sekolah terverifikasi lengkap (dan rata-ratanya). Lalu % sekolah terunggah lengkap (dan rata-rata & minimumnya dalam bentuk estimasi X dokumen). 
+3. **Dokumen Admin**: Sebutkan % sekolah sesuai lengkap. % terverifikasi. % terunggah lengkap (termasuk rata-rata & minimum estimasi X dokumen).
+4. **Perencana**: Status persentase sekolah memiliki perencana.
+5. **Dapodik**: Persentase update bukti dapodik.
+6. **Biodata**: Persentase atau jumlah sekolah yang biodatanya terverifikasi.
+7. **Aplikasi**: Jika ada yang belum login, sebutkan singkat.
+8. **Kesimpulan**: Awali dengan "Kesimpulannya, ...", sebutkan alasan utama mengapa checkpoint belum tercapai dalam 1 kalimat lugas (tanpa kata sambung berlebihan).
 
-POIN KOMUNIKASI (WAJIB SELALU ADA, SATU poin, taruh PALING ATAS/PERTAMA - ini yang menentukan apakah datanya bisa dipercaya/anomali atau tidak, jadi harus dibaca duluan sebelum poin checkpoint): sebutkan progres komunikasi fasilitator dengan sekolah SUDAH SAMPAI MANA PERSISNYA - dasarkan pada ISI TEKS Kendala Komunikasi yang diberikan di bagian "Status Komunikasi Fasilitator dengan Sekolah" (field "Isi TEKS Kendala Komunikasi saat ini"), BUKAN menebak/menyimpulkan sendiri dari angka persentase. Bedakan dengan jelas: kalau teksnya bilang "semua sekolah" belum dikomunikasikan/belum diisi, baru boleh bilang "belum ada komunikasi ke sekolah"; TAPI kalau teksnya bilang "sebagian sekolah" dengan angka (mis. "3 dari 20"), WAJIB sebutkan angka itu APA ADANYA (mis. "baru 3 dari 20 sekolah yang dikomunikasikan") - JANGAN generalisasi jadi "belum ada komunikasi sama sekali" kalau faktanya sebagian sudah. JANGAN bilang "belum login LK"/"belum login" - itu BUKAN framing yang diinginkan. Kalau bagian "Status Komunikasi..." di atas ada baris "⚠ ANOMALI TERDETEKSI: kolom Kendala Komunikasi sudah berisi data untuk hari yang belum terjadi", WAJIB tambahkan klausa itu sebagai kendala tambahan di akhir poin ini, TANPA tanda kurung - mis. "..., ANOMALI karena ada data untuk hari yang belum terjadi sehingga tidak bisa dipercaya." JANGAN diam soal ini kalau memang ada - TAPI kalau baris ANOMALI itu ADA, JANGAN tambahkan klausa "tidak ada progres baru sejak Hari ke-X" ataupun angka hari lain hasil hitung sendiri dari "Tabel Tren Harian" - riwayat kolom ini sudah ditandai tidak bisa dipercaya karena anomali itu, jadi klaim "sejak Hari ke-X" (dari sumber manapun) TIDAK BOLEH disebut, cukup laporkan anomalinya saja. Kalau baris ANOMALI itu TIDAK ADA dan catatan "Status Komunikasi..." bilang teks ini "PERSIS SAMA sejak Hari ke-X", WAJIB sertakan "tidak ada progres baru sejak Hari ke-X" di akhir kalimat TANPA tanda kurung (pakai angka Hari yang sudah diberikan di catatan itu, jangan hitung ulang sendiri dari tabel manapun).
+Contoh Referensi Analisis Manusia (Tiru keringkasannya, JANGAN tambahkan kalimat "Ini menunjukkan..."):
+[Contoh 1]
+"Checkpoint hari 11 belum ada, jadi masih melanjutkan checkpoint sebelumnya yaitu dokumen teknis sesuai 100% untuk 100% sekolah. Checkpoint sebelumnya belum tercapai.
 
-POIN CHECKPOINT HARI INI (WAJIB SELALU ADA, SATU poin, taruh SETELAH poin komunikasi - ini headline checkpoint TERBARU yang harus dicek admin, sebelum masuk ke rincian dokumen-dokumen lain): sebutkan checkpoint MANA yang PERSIS jatuh tempo hari ini (pakai bagian "Checkpoint yang PERSIS Jatuh Tempo Hari Ini" di atas) dan statusnya apa adanya. Kalau statusnya Belum Sesuai, lanjutkan jelaskan singkat apa yang kurang - kutip isi Kendala terkait dari fasilitator kalau ada di "Catatan Kualitatif" (fokus ke situ, itu yang ditulis fasilitator, bukan angka Aplikasi), atau sebut angka checkpoint singkat kalau Kendala terkait kosong (detailnya ada di bagian "Checkpoint Bermasalah - Jatuh Tempo PERSIS Hari Ini"). Kalau statusnya SUDAH Sesuai, cukup satu kalimat singkat mengonfirmasi itu positif, JANGAN diperpanjang. Kalau bagian itu bilang tidak ada checkpoint yang PERSIS jatuh tempo hari ini dan menunjuk ke checkpoint PALING RECENT sebagai gantinya (ditandai catatan "checkpoint PALING RECENT adalah..."), WAJIB sebutkan checkpoint pengganti itu berikut hari jatuh temponya dan statusnya - JANGAN cuma bilang "tidak ada checkpoint jatuh tempo" tanpa menyebut penggantinya. Hanya kalau memang belum ada satupun checkpoint yang berlaku sampai hari ini (fasilitator baru di hari-hari sangat awal), baru bilang itu apa adanya singkat.
+Dokumen teknis yang sesuai 100% baru mencapai 1 sekolah (5%), dengan rata-rata 0 dokumen per sekolah (5%). Dokumen teknis terverifikasi lengkap baru 3 sekolah (15%) dengan rata-rata 0 dokumen (5%). Dokumen teknis terunggah lengkap sisa 6 sekolah yang belum mengunggah, dengan progress minimum 0 dokumen (0%).
 
-POIN CHECKPOINT LAIN (SATU POIN TERPISAH untuk SETIAP item, JANGAN digabung jadi satu poin besar, taruh SETELAH poin checkpoint hari ini - ini rincian dokumen-dokumen lain, urutannya SUDAH diurutkan dari checkpoint paling baru jatuh tempo ke paling lama, ikuti urutan itu APA ADANYA jangan diacak): checkpoint LAIN (bukan yang hari ini, bukan komunikasi) yang masih Belum Sesuai. Bagian "Kalimat SIAP PAKAI - SATU POIN TERPISAH per checkpoint sebelumnya yang bermasalah" di atas berisi daftar bernomor - untuk SETIAP nomor di daftar itu, buat SATU POIN SENDIRI (dipisah baris kosong seperti poin lain), SALIN isi kalimatnya APA ADANYA (boleh rapikan sedikit kata sambung, TAPI JANGAN tambahkan tanda kurung buka-tutup - hilangkan kurung kalau ada, ganti jadi koma/titik dua). WAJIB MUTLAK: JUMLAH POIN yang kamu tulis di sini HARUS SAMA PERSIS dengan jumlah item di daftar itu - HITUNG dulu ada berapa item, jangan lebih jangan kurang. DILARANG KERAS menambahkan checkpoint/nama/angka APAPUN yang TIDAK ADA di daftar itu (walau kamu lihat checkpoint lain di "Tabel Tren Harian" atau "Basis Pengetahuan Checkpoint" - dua bagian itu berisi SEMUA checkpoint termasuk yang sudah Sesuai, BUKAN sumber untuk poin ini). Kalau daftar itu kosong/placeholder "tidak ada checkpoint lain yang masih bermasalah", tulis SATU poin singkat itu saja - DILARANG menghapus semuanya.
+Dokumen admin sesuai sudah 100% untuk semua sekolah. Artinya, dokumen admin terunggah dan terverifikasi juga 100%.
 
-POIN SOLUSI (WAJIB SELALU ADA, SATU poin, taruh setelah semua poin checkpoint, TAPI BUKAN poin PALING AKHIR - masih ada poin kinerja setelahnya): satu poin solusi/tindakan paling penting dan paling actionable untuk koordinator, spesifik ke masalah yang disebut di atas (bukan saran generik) - kalau dari awal tidak ada satupun checkpoint bermasalah, poin ini boleh bilang "tidak ada tindakan mendesak" saja.
+Status memiliki perencana: sudah semua sekolah memiliki perencana.
 
-POIN KINERJA (WAJIB SELALU ADA, SATU poin, taruh PALING AKHIR - JANGAN dihilangkan/dilewat walau poin solusi terasa sudah jadi penutup): satu kalimat sangat singkat soal kinerja/pola kerja keseluruhan fasilitator ini sejauh ini (mis. rajin update tapi lambat verifikasi ke sekolah, aktif di Aplikasi tapi checkpoint substantif macet, atau progresnya konsisten baik) - JANGAN sebut "Nilai Risiko", dan JANGAN cuma mengulang poin solusi dengan kata lain.`;
+Sekolah update bukti dapodik sudah 100%, berarti semua sekolah sudah update atau tidak ada perubahan kebutuhan.
+
+Kesimpulannya, checkpoint sebelumnya masih belum tercapai karena hanya 1 sekolah (5%) yang dokumen teknis sesuainya sudah lengkap, serta terverifikasi dan terunggah masih sedikit."
+
+PENTING: Gunakan HANYA data dari "Tabel Persentase Terkini" untuk menyusun angka-angkanya. Hitung estimasi dokumen dengan akurat (Admin dikali 11, Teknis dikali 6).`;
 
   return [
-    { role: "system", content: SYSTEM_PROMPT },
+    { role: "system", content: "Anda adalah analis data. Jawab dengan analisis naratif sesuai contoh dan format yang diinstruksikan. Dilarang menggunakan bullet point atau format markdown lain, gunakan paragraf biasa." },
     { role: "user", content: userPrompt },
   ];
 }
