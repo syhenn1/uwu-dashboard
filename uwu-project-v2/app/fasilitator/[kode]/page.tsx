@@ -18,6 +18,7 @@ import { AnomalyList } from "@/components/AnomalyList";
 import { MilestoneTimeline } from "@/components/MilestoneTimeline";
 import { LkFasilPanel } from "@/components/LkFasilPanel";
 import { getFacilitatorLkEditUrl } from "@/lib/facilitatorLkLinks";
+import { RawMatriksTable } from "@/components/RawMatriksTable";
 
 function hariRelativeLabel(hari: number, todayHari: number): string {
   if (hari === todayHari) return "hari ini";
@@ -113,6 +114,8 @@ export default async function FacilitatorDetailPage({
           {currentRow.kodeFasil} · Koordinator: {currentRow.namaKoor} ({currentRow.kodeKoor}) · Admin: {currentRow.atmin}
         </p>
       </div>
+
+      <RawMatriksTable row={currentRow} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)_360px] lg:items-start">
         <div className="flex flex-col gap-4 lg:sticky lg:top-4">

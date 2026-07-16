@@ -206,7 +206,14 @@ async function fetchFacilitatorMatriks(entry: ControllerFacilitatorEntry): Promi
  * Hari X") jadi kurang kaya dibanding v1 - bukan bug, itu batasan sumber
  * data yang tersedia saat ini.
  */
+let facilRowsCache: { at: number; rows: FacilRow[] } | null = null;
+const FACIL_CACHE_TTL_MS = 5 * 60 * 1000;
+
 export async function getFacilRows(): Promise<FacilRow[]> {
+  if (facilRowsCache && Date.now() - facilRowsCache.at < FACIL_CACHE_TTL_MS) {
+    return facilRowsCache.rows;
+  }
+
   if (!isControllerConfigured()) return loadSampleRows();
 
   const entries = await getControllerEntries();
@@ -215,7 +222,16 @@ export async function getFacilRows(): Promise<FacilRow[]> {
     return loadSampleRows();
   }
 
-  const results = await Promise.all(entries.map(fetchFacilitatorMatriks));
+  const results: (FacilRow | null)[] = [];
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+    const batch = entries.slice(i, i + BATCH_SIZE);
+    const batchResults = await Promise.all(batch.map(fetchFacilitatorMatriks));
+    results.push(...batchResults);
+    if (i + BATCH_SIZE < entries.length) {
+      await new Promise(r => setTimeout(r, 600)); // Jeda 600ms antar batch untuk mencegah rate limit
+    }
+  }
   const rows = results.filter((r): r is FacilRow => r !== null);
 
   if (rows.length === 0) {
@@ -225,6 +241,8 @@ export async function getFacilRows(): Promise<FacilRow[]> {
   if (rows.length < entries.length) {
     console.warn(`[sheet] ${rows.length} dari ${entries.length} fasilitator berhasil diambil datanya - sisanya dilewati (lihat log di atas).`);
   }
+  
+  facilRowsCache = { at: Date.now(), rows };
   return rows;
 }
 
