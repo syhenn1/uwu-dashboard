@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getFacilRows, getTodayHari } from "@/lib/sheet";
+import { getFacilRows, getTodayHari, getFacilitatorLogData } from "@/lib/sheet";
+import { fetchAnalisisFromSheet } from "@/lib/writeSheet";
 import { getRowsForFacilitator, riskLevel, getEffectiveRisk, getCurrentRow, getFacilitators } from "@uwu/core/metrics";
 import { getCheckpointCompliance, countNonCompliant } from "@uwu/core/compliance";
 import { buildNoteRanges, formatHariRange, QUALITATIVE_FIELDS } from "@uwu/core/notes";
@@ -18,7 +19,7 @@ import { AnomalyList } from "@/components/AnomalyList";
 import { MilestoneTimeline } from "@/components/MilestoneTimeline";
 import { LkFasilPanel } from "@/components/LkFasilPanel";
 import { getFacilitatorLkEditUrl } from "@/lib/facilitatorLkLinks";
-import { RawMatriksTable } from "@/components/RawMatriksTable";
+import { TodayLogPanel } from "@/components/TodayLogPanel";
 
 function hariRelativeLabel(hari: number, todayHari: number): string {
   if (hari === todayHari) return "hari ini";
@@ -36,16 +37,37 @@ export default async function FacilitatorDetailPage({
   const { kode } = await params;
   const { hari: hariParam, mode: modeParam } = await searchParams;
   const mode: "alltime" | "harian" = modeParam === "alltime" ? "alltime" : "harian";
-  const rows = await getFacilRows();
-  const history = getRowsForFacilitator(rows, kode);
+
+  // fetchAnalisisFromSheet (webhook Apps Script) TERUKUR 30+ detik sekali
+  // panggil (lihat catatan di lib/writeSheet.ts) - kalau `hari` sudah pasti
+  // dari URL (mode harian + hariParam ada, kasus PALING SERING: pindah hari
+  // lewat DaySelector), tidak perlu nunggu `history` selesai dulu buat tahu
+  // `hari` final - langsung tembak PARALEL bareng Promise.all di bawah,
+  // bukan sequential sesudahnya seperti sebelumnya (itu yang bikin ganti
+  // hari kerasa lama padahal cuma pindah baris di spreadsheet yang sama).
+  const eagerHari = mode === "harian" && hariParam ? parseInt(hariParam, 10) : null;
+  const eagerAnalisis = eagerHari != null ? fetchAnalisisFromSheet(kode, eagerHari) : null;
+
+  // v2: link LK Fasil pribadi & histori tab "Log" datang dari spreadsheet
+  // controller (fetch async), beda dari v1 yang baca env var statis secara
+  // sinkron - independen satu sama lain jadi di-fetch paralel.
+  const [rows, todayHari, editUrl, logData] = await Promise.all([
+    getFacilRows(),
+    getTodayHari(),
+    getFacilitatorLkEditUrl(kode),
+    getFacilitatorLogData(kode),
+  ]);
+
+  // Histori multi-hari dari tab "Log" (kalau ada, lihat lib/sheet.ts) -
+  // supaya DaySelector bisa menampilkan semua hari yang datanya sudah ada
+  // (mis. Hari 10/11/12), bukan cuma 1 hari terkini seperti tab "Isian".
+  // Fallback ke histori 1-baris lama kalau tab "Log" gagal diambil/kosong.
+  const history = logData && logData.history.length > 0 ? logData.history : getRowsForFacilitator(rows, kode);
   if (history.length === 0) notFound();
 
   const days = history.map((r) => r.hari);
   const latestDay = days[days.length - 1];
-  const todayHari = await getTodayHari();
-  // v2: link LK Fasil pribadi datang dari spreadsheet controller (fetch
-  // async), beda dari v1 yang baca env var statis secara sinkron.
-  const editUrl = await getFacilitatorLkEditUrl(kode);
+  const todayLogs = logData?.logsByHari.get(todayHari) ?? null;
 
   let hari: number;
   let currentRow: FacilRow;
@@ -64,6 +86,16 @@ export default async function FacilitatorDetailPage({
   const compliance = getCheckpointCompliance(currentRow, complianceHari);
   const nonCompliantCount = countNonCompliant(compliance);
   const relLabel = hariRelativeLabel(hari, todayHari);
+
+  // Isi kolom "Analisis" yang SUDAH ADA di spreadsheet (tabel log harian,
+  // bukan tab "Isian" yang di-fetch getFacilRows() - lihat fetchAnalisisFromSheet)
+  // untuk Hari yang lagi dilihat, supaya field di FacilitatorAnalysisWorkbench
+  // ke-prefill dan bisa diedit lagi, bukan selalu kosong. null (gagal-lunak
+  // di banyak kondisi) berarti workbench fallback ke kosong seperti sebelumnya.
+  // Pakai hasil eagerAnalisis (sudah jalan paralel di atas) kalau `hari`
+  // final cocok dengan eagerHari - cuma fallback sequential kalau belum ada
+  // (alltime, atau kunjungan pertama tanpa hariParam di URL).
+  const existingAnalisis = eagerHari === hari && eagerAnalisis ? await eagerAnalisis : await fetchAnalisisFromSheet(kode, hari);
 
   const notes = buildNoteRanges(history, QUALITATIVE_FIELDS, (text) => text !== "Belum Diisi");
   const unfilled = buildNoteRanges(history, QUALITATIVE_FIELDS, (text) => text === "Belum Diisi");
@@ -115,7 +147,7 @@ export default async function FacilitatorDetailPage({
         </p>
       </div>
 
-      <RawMatriksTable row={currentRow} />
+      <TodayLogPanel todayHari={todayHari} logs={todayLogs} />
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-[260px_minmax(0,1fr)_360px] lg:items-start">
         <div className="flex flex-col gap-4 lg:sticky lg:top-4">
@@ -195,6 +227,7 @@ export default async function FacilitatorDetailPage({
           mode={mode}
           prevFacilitator={prevFacilitator}
           nextFacilitator={nextFacilitator}
+          existingAnalisis={existingAnalisis}
         />
       </div>
 

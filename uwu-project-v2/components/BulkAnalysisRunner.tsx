@@ -148,6 +148,13 @@ export function BulkAnalysisRunner({ facilitators, days }: { facilitators: Facil
   }
 
   async function startAll(onlyFailed = false) {
+    // Re-run ("Generate Ulang Semua") menimpa entries yang sudah "done"
+    // (termasuk yang sudah ditambahkan ke spreadsheet) - konfirmasi dulu
+    // supaya tidak ketimpa tanpa sengaja. onlyFailed ("Coba Ulang yang
+    // Gagal") tidak perlu, karena cuma menyentuh entries yang memang gagal.
+    if (!onlyFailed && doneCount > 0 && !window.confirm(`${doneCount} hasil yang sudah selesai akan digenerate ulang dan ditimpa. Lanjutkan?`)) {
+      return;
+    }
     setRunning(true);
     cancelRef.current = false;
     const queue = onlyFailed ? list.filter((e) => e.status === "error").map((e) => ({ kodeFasil: e.kodeFasil, namaFasil: e.namaFasil, hari: e.hari })) : combos;

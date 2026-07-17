@@ -216,6 +216,152 @@ async function fetchFacilitatorMatriks(entry: ControllerFacilitatorEntry): Promi
   return row;
 }
 
+// --- Tab "Log" (histori multi-hari + snapshot Log 1/Log 2 per hari) -----
+
+/**
+ * Nama tab berisi HISTORI multi-hari (beda dari "Isian"/"Matriks" yang cuma
+ * snapshot HARI INI) di dalam SETIAP spreadsheet LK pribadi fasilitator -
+ * DIKONFIRMASI 2026-07-17 lewat fetch langsung: dua baris per hari ("Log 1
+ * di 07.00 WIB" dan "Log 2 di 13.30 WIB"), kolom sama seperti tab "Isian"
+ * (Kode Fasil, Nama Fasil, Kode Koor, Nama Koor, lalu 26 kolom Skor Akhir +
+ * total) TAPI kolom pertamanya label Log (bukan Atmin) dan kolom kedua sudah
+ * berupa angka "Hari" mentah (bukan label "Hari Ke -"). Baris untuk hari yang
+ * belum terjadi/belum diisi tetap ADA tapi kosong (Kode Fasil dkk. blank) -
+ * itu ditandai sebagai "belum ada data", bukan ikut jadi baris histori.
+ */
+const LOG_SHEET_NAME = "Log";
+
+interface ParsedLogRow {
+  hari: number;
+  logNumber: number;
+  identity: string[]; // [kodeFasil, namaFasil, kodeKoor, namaKoor]
+  values: string[];
+  skorAkhirRaw: string;
+}
+
+/** Parses satu baris data tab "Log" (Papa.parse header:false, array kolom
+ * mentah) - null kalau bukan baris log yang valid (kolom pertama bukan
+ * "Log N di ...", atau kolom "Hari" bukan angka). */
+function parseLogRow(cols: string[]): ParsedLogRow | null {
+  const label = (cols[0] ?? "").trim();
+  const logMatch = label.match(/^Log\s*(\d+)/i);
+  if (!logMatch) return null;
+  const hari = parseInt((cols[1] ?? "").trim(), 10);
+  if (!hari) return null;
+  return {
+    hari,
+    logNumber: parseInt(logMatch[1], 10),
+    identity: cols.slice(2, 6),
+    values: cols.slice(6, 6 + SKOR_AKHIR_COLUMNS.length),
+    skorAkhirRaw: cols[6 + SKOR_AKHIR_COLUMNS.length] ?? "",
+  };
+}
+
+/** Bangun FacilRow dari satu ParsedLogRow - pola sama persis dengan bagian
+ * akhir fetchFacilitatorMatriks di atas, cuma identity-nya beda urutan/isi
+ * (tidak ada "Atmin"/"Hari Ke -" per baris di tab "Log", jadi atmin & hari
+ * diambil dari entry controller + kolom "Hari" tab Log). */
+function buildFacilRowFromLog(entry: ControllerFacilitatorEntry, parsed: ParsedLogRow): FacilRow {
+  const [kodeFasil, namaFasil, kodeKoor, namaKoor] = parsed.identity;
+  const skorAkhir = parsePercentCell(parsed.skorAkhirRaw);
+
+  const row = blankFacilRow();
+  row.atmin = entry.atmin;
+  row.hari = parsed.hari;
+  row.hariLabel = `Hari ${parsed.hari}`;
+  row.kodeFasil = (kodeFasil ?? "").trim() || entry.kodeFasil;
+  row.namaFasil = (namaFasil ?? "").trim() || entry.namaFasil;
+  row.kodeKoor = (kodeKoor ?? "").trim();
+  row.namaKoor = (namaKoor ?? "").trim();
+  if (skorAkhir != null) {
+    row.nilaiRisiko = 100 - skorAkhir;
+    row.skorAkhir = skorAkhir;
+  }
+
+  const rawRecord: Record<string, string> = {};
+  SKOR_AKHIR_COLUMNS.forEach((col, i) => {
+    rawRecord[col.header] = parsed.values[i] ?? "";
+  });
+  row.raw = rawRecord;
+  Object.assign(row, applySkorAkhirColumns(rawRecord));
+
+  return row;
+}
+
+export interface DayLogSnapshot {
+  log1: FacilRow | null;
+  log2: FacilRow | null;
+}
+
+export interface FacilitatorLogData {
+  /** Satu FacilRow per hari yang SUDAH ada datanya (Log 2 kalau sudah diisi,
+   * fallback ke Log 1 kalau Log 2 belum) - dipakai sebagai histori multi-hari
+   * di halaman /fasilitator/[kode] (DaySelector dkk.), diurutkan naik. */
+  history: FacilRow[];
+  /** Snapshot Log 1 & Log 2 MENTAH per hari (tanpa digabung) - dipakai untuk
+   * menampilkan keduanya berdampingan, terutama untuk hari ini. */
+  logsByHari: Map<number, DayLogSnapshot>;
+}
+
+/** Fetch + parse tab "Log" satu fasilitator (histori multi-hari + Log 1/Log 2
+ * per hari) - null kalau tab-nya tidak ada/tidak bisa diakses (dicatat via
+ * console.warn, TIDAK throw, sama seperti fetchFacilitatorMatriks: satu
+ * fasilitator gagal tidak boleh menggagalkan halaman). */
+async function fetchFacilitatorLog(entry: ControllerFacilitatorEntry): Promise<FacilitatorLogData | null> {
+  const url = `https://docs.google.com/spreadsheets/d/${entry.spreadsheetId}/gviz/tq?${new URLSearchParams({ tqx: "out:csv", sheet: LOG_SHEET_NAME }).toString()}`;
+  const csv = await tryFetchCsv(url);
+  if (!csv) {
+    console.warn(`[sheet] Tab "${LOG_SHEET_NAME}" tidak bisa diakses/di-parse untuk ${entry.kodeFasil}.`);
+    return null;
+  }
+
+  const parsed = Papa.parse<string[]>(csv, { header: false, skipEmptyLines: false });
+  const rows = parsed.data;
+  const headerIdx = rows.findIndex((r) => (r[0] ?? "").trim() === "Log");
+  if (headerIdx === -1) {
+    console.warn(`[sheet] Baris header tab "${LOG_SHEET_NAME}" (kolom pertama "Log") tidak ditemukan untuk ${entry.kodeFasil}.`);
+    return null;
+  }
+
+  const logsByHari = new Map<number, DayLogSnapshot>();
+  for (let i = headerIdx + 1; i < rows.length; i++) {
+    const parsedRow = parseLogRow(rows[i]);
+    if (!parsedRow) continue;
+    if ((rows[i][2] ?? "").trim() === "") continue; // kolom C = Kode Fasil kosong = belum ada data log ini
+    const facilRow = buildFacilRowFromLog(entry, parsedRow);
+    const slot = logsByHari.get(parsedRow.hari) ?? { log1: null, log2: null };
+    if (parsedRow.logNumber === 1) slot.log1 = facilRow;
+    else if (parsedRow.logNumber === 2) slot.log2 = facilRow;
+    logsByHari.set(parsedRow.hari, slot);
+  }
+
+  const history: FacilRow[] = [];
+  const haris = Array.from(logsByHari.keys()).sort((a, b) => a - b);
+  for (const hari of haris) {
+    const slot = logsByHari.get(hari)!;
+    const chosen = slot.log2 ?? slot.log1;
+    if (chosen) history.push(chosen);
+  }
+
+  return { history, logsByHari };
+}
+
+/**
+ * Histori multi-hari + snapshot Log 1/Log 2 SATU fasilitator, dari tab "Log"
+ * di spreadsheet LK pribadinya - lihat catatan LOG_SHEET_NAME di atas.
+ * Dipakai KHUSUS di halaman /fasilitator/[kode] (bukan getFacilRows), supaya
+ * DaySelector bisa menampilkan semua hari yang datanya sudah ada (bukan cuma
+ * 1 hari terkini seperti tab "Isian"). null kalau kodeFasil tidak ditemukan
+ * di controller ATAU fetch tab "Log"-nya gagal total - pemanggil harus
+ * fallback ke histori 1-baris dari getFacilRows() seperti sebelumnya.
+ */
+export async function getFacilitatorLogData(kodeFasil: string): Promise<FacilitatorLogData | null> {
+  const entries = await getControllerEntries();
+  const entry = entries.find((e) => e.kodeFasil === kodeFasil);
+  if (!entry) return null;
+  return fetchFacilitatorLog(entry);
+}
+
 /**
  * Sumber data ASLI v2: satu FacilRow (kondisi TERKINI, bukan histori) per
  * fasilitator, di-fetch paralel dari tab "Matriks" masing-masing 30
@@ -226,13 +372,14 @@ async function fetchFacilitatorMatriks(entry: ControllerFacilitatorEntry): Promi
  * fallback ke sample) - fasilitator yang gagal tercatat di log server
  * (lihat fetchFacilitatorMatriks), sisanya tetap data asli.
  *
- * KETERBATASAN PENTING (lihat README.md): tab "Matriks" cuma expose kondisi
- * HARI INI, bukan histori 14 hari seperti "Level Fasil" v1 - jadi
- * `getFacilRows()` di v2 mengembalikan HANYA 1 baris per fasilitator (bukan
- * 1 baris per fasilitator per hari). Fitur yang butuh tren multi-hari
- * (Tabel Tren Harian di prompt LLM, grafik tren, deteksi "stagnan sejak
- * Hari X") jadi kurang kaya dibanding v1 - bukan bug, itu batasan sumber
- * data yang tersedia saat ini.
+ * KETERBATASAN (lihat README.md): tab "Matriks"/"Isian" cuma expose kondisi
+ * HARI INI, bukan histori multi-hari - jadi `getFacilRows()` mengembalikan
+ * HANYA 1 baris per fasilitator. TERNYATA ada sumber histori terpisah, tab
+ * "Log" (dikonfirmasi 2026-07-17, lihat getFacilitatorLogData di bawah) -
+ * dipakai KHUSUS di halaman /fasilitator/[kode] (histori per-hari + snapshot
+ * Log 1/Log 2 hari ini), belum dipakai di sini (getFacilRows tetap 1
+ * baris/fasilitator) supaya dashboard/perbandingan yang butuh SATU baris
+ * "kondisi terkini" per fasilitator tidak perlu diubah sekaligus.
  */
 let facilRowsCache: { at: number; rows: FacilRow[] } | null = null;
 const FACIL_CACHE_TTL_MS = 5 * 60 * 1000;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { SKOR_AKHIR_COLUMNS } from "@/lib/skorAkhirColumns";
+import { SKOR_AKHIR_COLUMNS, percentCellColorClass, skorAkhirColorClass } from "@/lib/skorAkhirColumns";
 import type { FacilRow } from "@uwu/core/types";
 import { deriveKampus } from "@uwu/core/metrics";
 import Link from "next/link";
@@ -142,13 +142,7 @@ export function AllFasilRawMatriksTable({ rows }: { rows: FacilRow[] }) {
           <tbody className="divide-y divide-border">
             {sorted.map((row, rowIdx) => {
               if (!row.raw || Object.keys(row.raw).length === 0) return null;
-              
-              let skorColor = "text-ink-primary";
-              if (typeof row.skorAkhir === "number") {
-                if (row.skorAkhir === 100) skorColor = "bg-status-good/20 text-ink-primary font-medium";
-                else if (row.skorAkhir < 50) skorColor = "bg-status-critical/20 text-ink-primary font-medium";
-                else if (row.skorAkhir < 90) skorColor = "bg-status-warning/20 text-ink-primary font-medium";
-              }
+              const skorColor = skorAkhirColorClass(row.skorAkhir);
 
               return (
                 <tr key={rowIdx} className="transition-colors hover:bg-background/40">
@@ -169,19 +163,8 @@ export function AllFasilRawMatriksTable({ rows }: { rows: FacilRow[] }) {
                   </td>
                   {SKOR_AKHIR_COLUMNS.map((col, idx) => {
                     const rawValue = row.raw[col.header] ?? "-";
-
-                    let colorClass = "text-ink-primary";
-                    if (typeof rawValue === "string" && rawValue.includes("%")) {
-                      const num = parseFloat(rawValue);
-                      if (!isNaN(num)) {
-                        if (num === 100) colorClass = "bg-status-good/20 text-ink-primary font-medium";
-                        else if (num < 50) colorClass = "bg-status-critical/20 text-ink-primary font-medium";
-                        else if (num < 90) colorClass = "bg-status-warning/20 text-ink-primary font-medium";
-                      }
-                    }
-
                     return (
-                      <td key={idx} className={`whitespace-nowrap px-4 py-2.5 text-center ${colorClass}`}>
+                      <td key={idx} className={`whitespace-nowrap px-4 py-2.5 text-center ${percentCellColorClass(rawValue)}`}>
                         {rawValue}
                       </td>
                     );

@@ -42,6 +42,11 @@
 // DEBUG: buka URL Web App ini di browser (GET) + "?secret=SECRET_KAMU&spreadsheetId=ID_SPREADSHEET_LK"
 // untuk lihat JSON diagnostik satu spreadsheet LK tertentu (semua tab yang
 // ada, tabel log harian ketemu di tab mana, preview isinya).
+//
+// dipakai juga oleh aplikasi (lib/writeSheet.ts, fetchAnalisisFromSheet) lewat
+// "&action=get&hari=N" untuk narik hasil Analisis yang SUDAH ADA di
+// spreadsheet untuk satu Hari, supaya field-nya bisa di-prefill & diedit lagi
+// alih-alih selalu kosong - balasannya { hasil: "..." } atau { hasil: null }.
 
 var SAVE_ANALISIS_SECRET = "GANTI_DENGAN_SECRET_RAHASIA_MILIKMU";
 
@@ -90,11 +95,36 @@ function doGet(e) {
     return saveAnalisisJsonResponse({ error: "Gagal buka spreadsheet (cek spreadsheetId, atau admin belum Editor di situ): " + String(err) });
   }
 
+  var found = saveAnalisisFindLogTable(ss);
+
+  // action=get: dipakai aplikasi (lib/writeSheet.ts) untuk narik hasil
+  // Analisis yang SUDAH ADA di spreadsheet untuk satu Hari tertentu, supaya
+  // bisa ditampilkan di input field (dan diedit lagi) alih-alih selalu
+  // kosong. Balasannya sengaja simpel ({ hasil }) - beda dari mode default
+  // di bawah (tanpa "&action=get") yang tetap dipertahankan buat debug
+  // manual lewat browser (dump semua tab + preview beberapa baris).
+  if (e.parameter.action === "get") {
+    var hariParam = parseInt(e.parameter.hari, 10);
+    if (isNaN(hariParam)) {
+      return saveAnalisisJsonResponse({ error: 'Tambahkan "&hari=N" di URL untuk action=get.' });
+    }
+    if (!found) {
+      return saveAnalisisJsonResponse({ hasil: null });
+    }
+    for (var rGet = found.headerRow + 1; rGet < found.values.length; rGet++) {
+      var rowHariGet = parseInt(saveAnalisisNormalize(found.values[rGet][found.hariCol]), 10);
+      if (!isNaN(rowHariGet) && rowHariGet === hariParam) {
+        var hasilGet = saveAnalisisNormalize(found.values[rGet][found.analisisCol]);
+        return saveAnalisisJsonResponse({ hasil: hasilGet === "" ? null : hasilGet });
+      }
+    }
+    return saveAnalisisJsonResponse({ hasil: null });
+  }
+
   var semuaTab = ss.getSheets().map(function (s) {
     return s.getName();
   });
 
-  var found = saveAnalisisFindLogTable(ss);
   if (!found) {
     return saveAnalisisJsonResponse({
       error: 'Tidak ketemu tabel log harian (baris dengan sel "Analisis" DAN sel berawalan "Hari Ke" di baris yang sama) di tab manapun.',

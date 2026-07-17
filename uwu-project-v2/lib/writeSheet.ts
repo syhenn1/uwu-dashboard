@@ -1,5 +1,63 @@
 import { getControllerEntry } from "./controller";
 
+/**
+ * Narik hasil Analisis yang SUDAH ADA di spreadsheet LK fasilitator (kolom
+ * "Analisis" tabel log harian) untuk satu Hari tertentu, lewat action=get di
+ * webhook Apps Script yang sama dengan pushAnalysisToSheet (lihat
+ * google-apps-script/save-analisis.gs). Dipakai supaya field "Hasil Analisis"
+ * di /fasilitator/[kode] ke-prefill dengan isi yang sudah ada (bisa diedit
+ * lagi), bukan selalu kosong walau sudah pernah diisi/disimpan sebelumnya.
+ *
+ * Gagal-lunak di semua kondisi (env belum diset, fasilitator tidak ditemukan
+ * di controller, webhook error/timeout) - null di semua kasus itu, field
+ * cukup fallback ke kosong seperti sebelumnya, tidak boleh menggagalkan
+ * render halaman.
+ */
+export async function fetchAnalisisFromSheet(kodeFasil: string, hari: number): Promise<string | null> {
+  const url = process.env.WRITE_SHEETS_WEBHOOK_URL;
+  const secret = process.env.WRITE_SHEETS_WEBHOOK_SECRET;
+  if (!url || !secret) {
+    console.warn(`[writeSheet] fetchAnalisisFromSheet(${kodeFasil}, Hari ${hari}): WRITE_SHEETS_WEBHOOK_URL/SECRET belum diset.`);
+    return null;
+  }
+
+  const entry = await getControllerEntry(kodeFasil);
+  if (!entry) {
+    console.warn(`[writeSheet] fetchAnalisisFromSheet(${kodeFasil}, Hari ${hari}): kodeFasil tidak ditemukan di controller.`);
+    return null;
+  }
+
+  const params = new URLSearchParams({ secret, spreadsheetId: entry.spreadsheetId, hari: String(hari), action: "get" });
+  try {
+    // Webhook Apps Script ini LAMBAT (SpreadsheetApp.openById + full-sheet
+    // cell scan, lihat save-analisis.gs::saveAnalisisFindLogTable - terukur
+    // 30+ detik di satu spreadsheet LK nyata) - di-cache 60 detik per
+    // (spreadsheetId, hari) supaya pindah-pindah Hari yang sudah pernah
+    // dibuka tidak menunggu round-trip itu lagi tiap kali. 60 detik (bukan
+    // 300 seperti fetch lain di lib/ ini) supaya hasil Analisis yang baru
+    // disimpan (pushAnalysisToSheet) tidak terlalu lama keliatan basi kalau
+    // halaman di-refresh oleh admin lain.
+    const res = await fetch(`${url}?${params.toString()}`, { next: { revalidate: 60 } });
+    if (!res.ok) {
+      console.warn(`[writeSheet] fetchAnalisisFromSheet(${kodeFasil}, Hari ${hari}): webhook HTTP ${res.status}.`);
+      return null;
+    }
+    const data = await res.json().catch(() => null);
+    if (!data || data.error) {
+      console.warn(`[writeSheet] fetchAnalisisFromSheet(${kodeFasil}, Hari ${hari}): respons webhook tidak valid/error - ${data?.error ?? JSON.stringify(data)}. Kemungkinan Apps Script belum di-redeploy dengan versi terbaru (action=get).`);
+      return null;
+    }
+    if (typeof data.hasil !== "string") {
+      console.warn(`[writeSheet] fetchAnalisisFromSheet(${kodeFasil}, Hari ${hari}): belum ada Analisis tersimpan di spreadsheet untuk Hari ini (hasil=${JSON.stringify(data.hasil)}).`);
+      return null;
+    }
+    return data.hasil;
+  } catch (err) {
+    console.warn(`[writeSheet] fetchAnalisisFromSheet(${kodeFasil}, Hari ${hari}): gagal terhubung ke webhook - ${err instanceof Error ? err.message : "unknown"}.`);
+    return null;
+  }
+}
+
 export interface AnalysisSaveItem {
   kodeFasil: string;
   hari: number;

@@ -250,6 +250,7 @@ export function FacilitatorAnalysisWorkbench({
   mode,
   prevFacilitator,
   nextFacilitator,
+  existingAnalisis,
 }: {
   row: FacilRow;
   history: FacilRow[];
@@ -258,8 +259,15 @@ export function FacilitatorAnalysisWorkbench({
   mode: "alltime" | "harian";
   prevFacilitator: FacilitatorRef | null;
   nextFacilitator: FacilitatorRef | null;
+  /** Hasil Analisis yang SUDAH ADA di spreadsheet (tabel log harian) untuk
+   * Hari ini, di-fetch server-side lewat fetchAnalisisFromSheet - dipakai
+   * sebagai nilai awal field di bawah supaya bisa diedit lagi, alih-alih
+   * selalu kosong. null kalau belum ada isinya atau gagal diambil (fallback
+   * ke row.analisis seperti sebelumnya, biasanya juga kosong untuk data
+   * asli - lihat catatan di lib/sheet.ts). */
+  existingAnalisis: string | null;
 }) {
-  const [hasil, setHasil] = useState(fieldValue(row, "analisis"));
+  const [hasil, setHasil] = useState(existingAnalisis ?? fieldValue(row, "analisis"));
   const [generating, setGenerating] = useState(false);
   const [genError, setGenError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "done" | "error">("idle");
@@ -267,6 +275,12 @@ export function FacilitatorAnalysisWorkbench({
   const [excludeAplikasi, setExcludeAplikasi] = useState(false);
 
   async function generate() {
+    // Field ini bisa sudah berisi hasil sebelumnya (diedit manual, generate
+    // AI sebelumnya, ATAU ke-prefill dari spreadsheet lewat existingAnalisis
+    // di atas) - konfirmasi dulu supaya tidak ketimpa tanpa sengaja.
+    if (hasil.trim() && !window.confirm("Ada isi di field Hasil Analisis (mungkin belum disimpan). Timpa dengan hasil generate AI yang baru?")) {
+      return;
+    }
     setGenerating(true);
     setGenError(null);
     try {

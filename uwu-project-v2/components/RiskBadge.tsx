@@ -7,17 +7,41 @@ const STYLES: Record<RiskLevel, { label: string; dot: string; text: string; bg: 
   unknown: { label: "Tidak diketahui", dot: "bg-status-unknown", text: "text-ink-muted", bg: "bg-status-unknown/10" },
 };
 
-export function RiskBadge({ level, value, estimated }: { level: RiskLevel; value: number | null; estimated?: boolean }) {
+/** `compact`: dot + label saja, TANPA angka persen (dipakai di tabel padat
+ * mis. TodayLogPanel yang harus muat 1 layar tanpa scroll horizontal -
+ * varian penuh dengan "· 38.1% (estimasi)" bisa jauh lebih lebar dari
+ * kolomnya). Detail angka tetap ada lewat `title` (hover). */
+export function RiskBadge({
+  level,
+  value,
+  estimated,
+  compact,
+}: {
+  level: RiskLevel;
+  value: number | null;
+  estimated?: boolean;
+  compact?: boolean;
+}) {
   const s = STYLES[level];
+  const detail = typeof value === "number" ? `${value.toFixed(1)}%${estimated ? " (estimasi)" : ""}` : null;
+
+  if (compact) {
+    return (
+      <span
+        title={detail ? `${s.label} · ${detail}` : s.label}
+        className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[10px] font-medium ${s.bg} ${s.text}`}
+      >
+        <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${s.dot}`} aria-hidden />
+        {s.label}
+      </span>
+    );
+  }
+
   return (
     <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${s.bg} ${s.text}`}>
       <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} aria-hidden />
       {s.label}
-      {typeof value === "number" && (
-        <span className="text-ink-muted">
-          · {value.toFixed(1)}%{estimated ? " (estimasi)" : ""}
-        </span>
-      )}
+      {detail && <span className="text-ink-muted">· {detail}</span>}
     </span>
   );
 }
