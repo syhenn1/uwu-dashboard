@@ -145,31 +145,21 @@ async function tryFetchCsv(url: string): Promise<string | null> {
   }
 }
 
-function parseLogCsv(csv: string): { values: string[] } | null {
-  const parsed = Papa.parse<string[]>(csv, { header: false, skipEmptyLines: false });
-  const rows = parsed.data;
-  const headerIdx = rows.findIndex((r) => (r[0] ?? "").trim() === "Atmin");
-  if (headerIdx === -1) return null;
-  
-  let lastDataRow = null;
-  for (let i = headerIdx + 1; i < rows.length; i++) {
-    if ((rows[i][2] ?? "").trim() !== "") {
-      lastDataRow = rows[i];
-    }
-  }
-  
-  if (!lastDataRow) return null;
-  
-  return {
-    values: lastDataRow.slice(6, 6 + SKOR_AKHIR_COLUMNS.length),
-  };
-}
+// Fungsi parseLogCsv dihapus karena sudah tidak dipakai (digantikan fetchFacilitatorLog)
 
 /** Fetch + parse tab "Isian" (untuk Skor Akhir) dan "Log" (untuk data mentah).
  * Coba by-name dulu (ISIAN_SHEET_NAME), fallback ke gid (MATRIKS_GID) kalau
  * itu gagal. null kalau dua-duanya gagal (dicatat via console.warn, TIDAK
  * throw - satu fasilitator gagal tidak boleh menggagalkan semua). */
 async function fetchFacilitatorMatriks(entry: ControllerFacilitatorEntry): Promise<FacilRow | null> {
+  // Sesuai permintaan user: ambil data mutlak dari baris log terakhir di sheet Log,
+  // bukan dari sheet Isian yang realtime.
+  const logData = await fetchFacilitatorLog(entry);
+  if (logData && logData.history.length > 0) {
+    return logData.history[logData.history.length - 1];
+  }
+
+  // Fallback ke tab "Isian" jika sheet Log gagal dibaca (misal format berubah)
   const byNameUrl = `https://docs.google.com/spreadsheets/d/${entry.spreadsheetId}/gviz/tq?${new URLSearchParams({ tqx: "out:csv", sheet: ISIAN_SHEET_NAME }).toString()}`;
   const byGidUrl = `https://docs.google.com/spreadsheets/d/${entry.spreadsheetId}/export?format=csv&gid=${MATRIKS_GID}`;
 
@@ -184,9 +174,8 @@ async function fetchFacilitatorMatriks(entry: ControllerFacilitatorEntry): Promi
     return null;
   }
   
-  const logUrl = `https://docs.google.com/spreadsheets/d/${entry.spreadsheetId}/gviz/tq?${new URLSearchParams({ tqx: "out:csv", sheet: "Log" }).toString()}`;
-  const csvLog = await tryFetchCsv(logUrl);
-  const matriksLog = csvLog ? parseLogCsv(csvLog) : null;
+  // Tidak perlu lagi mem-parsing Log secara terpisah karena sudah dicoba di awal
+  // dan kalau sampai sini berarti Log gagal diakses.
 
   const [atmin, hariKeRaw, kodeFasil, namaFasil, kodeKoor, namaKoor] = matriksIsian.identity;
   const hari = parseInt((hariKeRaw ?? "").trim(), 10) || 0;
@@ -204,7 +193,7 @@ async function fetchFacilitatorMatriks(entry: ControllerFacilitatorEntry): Promi
     row.skorAkhir = skorAkhir;
   }
 
-  const rawValues = matriksLog ? matriksLog.values : matriksIsian.values;
+  const rawValues = matriksIsian.values;
 
   const rawRecord: Record<string, string> = {};
   SKOR_AKHIR_COLUMNS.forEach((col, i) => {
