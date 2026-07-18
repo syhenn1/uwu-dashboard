@@ -400,7 +400,7 @@ export function FacilitatorAnalysisWorkbench({
       if ((data.updated ?? 0) === 0) {
         setSaveState("error");
         setSaveError(
-          `Tidak ditemukan baris "${row.kodeFasil}" + Hari ${hari} di spreadsheet tujuan webhook - cek lagi WRITE_SHEETS_WEBHOOK_URL.`
+          `Tidak ditemukan baris "${row.kodeFasil}" + Hari ${hari} di spreadsheet LK fasilitator tersebut.`
         );
       } else {
         setSaveState("done");

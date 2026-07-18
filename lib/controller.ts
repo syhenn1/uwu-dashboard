@@ -8,8 +8,8 @@ import Papa from "papaparse";
  * dikelola pemilik program, jadi otomatis ikut ter-update kalau ada
  * fasilitator baru/sheet pindah).
  *
- * DIKONFIRMASI 2026-07-16 - tab "Fasilitator" (gid=0) berisi 30 baris, kolom
- * persis: "Atmin", "Kode Fasil", "Nama Fasil", "Tautan" (URL "edit" biasa ke
+ * DIKONFIRMASI 2026-07-16 - tab "Daftar Fasilitator" (gid=0) berisi 30 baris, kolom
+ * persis: "Atmin", "Kode Fasil", "Nama Fasil", "LK Log" (URL "edit" biasa ke
  * spreadsheet LK pribadi masing-masing, TANPA fragment #gid= - berarti
  * selalu mengarah ke tab PERTAMA/default spreadsheet itu, gid diasumsikan
  * "0" - tab data sebenarnya, "Isian", ada di gid lain, lihat lib/sheet.ts).
@@ -38,8 +38,8 @@ function normalizeSheetUrl(url: string): string {
   return `https://docs.google.com/spreadsheets/d/${idMatch[1]}/export?format=csv&gid=${gid}`;
 }
 
-/** Ekstrak spreadsheetId + gid dari URL "Tautan" milik satu fasilitator
- * (kolom D tab "Fasilitator") - beda dari normalizeSheetUrl di atas (yang
+/** Ekstrak spreadsheetId + gid dari URL "LK Log" milik satu fasilitator
+ * (kolom tab "Daftar Fasilitator") - beda dari normalizeSheetUrl di atas (yang
  * mengubah URL controller SENDIRI jadi endpoint CSV), ini cuma perlu
  * id+gid mentah untuk disimpan di ControllerFacilitatorEntry. */
 function parseSheetIdAndGid(url: string): { spreadsheetId: string; gid: string } | null {
@@ -80,7 +80,7 @@ export async function getControllerEntries(): Promise<ControllerFacilitatorEntry
   const lines = rawCsv.split(/\r\n|\n/);
   const headerIdx = lines.findIndex((l) => l.startsWith(FASILITATOR_HEADER_ANCHOR));
   if (headerIdx === -1) {
-    console.warn('[controller] Baris header ("Atmin, Kode Fasil, Nama Fasil, Tautan") tidak ditemukan di tab "Fasilitator".');
+    console.warn('[controller] Baris header ("Atmin, Kode Fasil, Nama Fasil, ... LK Log") tidak ditemukan di tab "Daftar Fasilitator".');
     return cache?.entries ?? [];
   }
   const csv = lines.slice(headerIdx).join("\n");
@@ -89,11 +89,11 @@ export async function getControllerEntries(): Promise<ControllerFacilitatorEntry
   const entries: ControllerFacilitatorEntry[] = [];
   for (const row of parsed.data) {
     const kodeFasil = (row["Kode Fasil"] ?? "").trim();
-    const tautan = (row["Tautan"] ?? "").trim();
+    const tautan = (row["LK Log"] ?? row["Tautan"] ?? "").trim();
     if (!kodeFasil || !tautan) continue;
     const parsedUrl = parseSheetIdAndGid(tautan);
     if (!parsedUrl) {
-      console.warn(`[controller] "Tautan" untuk ${kodeFasil} bukan URL spreadsheet Google yang valid: "${tautan}".`);
+      console.warn(`[controller] "LK Log" untuk ${kodeFasil} bukan URL spreadsheet Google yang valid: "${tautan}".`);
       continue;
     }
     entries.push({

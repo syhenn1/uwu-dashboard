@@ -217,7 +217,7 @@ export function BulkAnalysisRunner({ facilitators, days }: { facilitators: Facil
       if (updated === 0 && notFound.length > 0) {
         setSaveState("error");
         setSaveError(
-          `0 dari ${items.length} tersimpan - semua kombinasi Kode Fasil + Hari tidak ditemukan di spreadsheet tujuan webhook. Kemungkinan WRITE_SHEETS_WEBHOOK_URL mengarah ke spreadsheet yang berbeda dari SHEET_CSV_URL - cek lagi link-nya.`
+          `0 dari ${items.length} tersimpan - semua kombinasi Kode Fasil + Hari tidak ditemukan di spreadsheet LK fasilitator tersebut.`
         );
       } else {
         setSaveState("done");
