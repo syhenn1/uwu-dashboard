@@ -390,14 +390,14 @@ Nilai capaian fasil atas [Nama Fasil] berada di angka [Skor Akhir]. [Beri 1-2 ka
 
 Checkpoint wajib untuk hari ke-${maxDay} yaitu [Sebutkan checkpoint hari ini dan tujuannya]. Namun, sampai saat ini [sebutkan progresnya, misal: tidak ada sekolah yang sudah sepakat RAB (0%)]. Beberapa hal berikut berpotensi berpengaruh terhadap capaian tersebut:
 
-Sekolah login aplikasi: [Penjelasan objektif]. [Kalimat Keterangan Kendala Wajib (karena tidak ada kolom khusus untuk ini)]
-Perencana: [Penjelasan objektif]. [Isi "Kendala Mendapatkan Perencana" JIKA ADA di JSON, ATAU Kalimat Keterangan Kendala Wajib jika kosong]
-Unggah dokumen admin: [Penjelasan objektif + Penjabaran angka /220 dokumen]. [Isi "Kendala Penyusunan Dok. Admin" JIKA ADA di JSON, ATAU Kalimat Keterangan Kendala Wajib jika kosong]
-Verifikasi dokumen admin: [Penjelasan objektif]. [Isi "Kendala Verifikasi Dok. Admin" JIKA ADA di JSON, ATAU Kalimat Keterangan Kendala Wajib jika kosong]
-Verifikasi dokumen admin "Sesuai": [Penjelasan objektif]. [Isi "Kendala Verifikasi Dok. Admin" JIKA ADA di JSON, ATAU Kalimat Keterangan Kendala Wajib jika kosong]
-Unggah dokumen teknis: [Penjelasan objektif + Penjabaran angka /120 dokumen]. [Isi "Kendala Penyusunan Dok. Teknis" JIKA ADA di JSON, ATAU Kalimat Keterangan Kendala Wajib jika kosong]
-Verifikasi dokumen teknis: [Penjelasan objektif]. [Isi "Kendala Verifikasi Dok. Teknis" JIKA ADA di JSON, ATAU Kalimat Keterangan Kendala Wajib jika kosong]
-Verifikasi dokumen teknis "Sesuai": [Penjelasan objektif]. [Isi "Kendala Verifikasi Dok. Teknis" JIKA ADA di JSON, ATAU Kalimat Keterangan Kendala Wajib jika kosong]
+Sekolah login aplikasi: [Penjelasan objektif]. [Tulis persis: "Kendala terkait sekolah login aplikasi tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
+Perencana: [Penjelasan objektif]. [JIKA di JSON ada label "Kendala Mendapatkan Perencana", tulis isinya. JIKA TIDAK ADA, tulis persis: "Kendala terkait perencana tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
+Unggah dokumen admin: [Penjelasan objektif + Penjabaran angka /220 dokumen]. [JIKA di JSON ada label "Kendala Penyusunan Dok. Admin", tulis isinya. JIKA TIDAK ADA, tulis persis: "Kendala terkait penyusunan dokumen admin tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
+Verifikasi dokumen admin: [Penjelasan objektif]. [JIKA di JSON ada label "Kendala Verifikasi Dok. Admin", tulis isinya. JIKA TIDAK ADA, tulis persis: "Kendala terkait verifikasi dokumen admin tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
+Verifikasi dokumen admin "Sesuai": [Penjelasan objektif]. [JIKA di JSON ada label "Kendala Verifikasi Dok. Admin", tulis isinya. JIKA TIDAK ADA, tulis persis: "Kendala terkait kesesuaian dokumen admin tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
+Unggah dokumen teknis: [Penjelasan objektif + Penjabaran angka /120 dokumen]. [JIKA di JSON ada label "Kendala Penyusunan Dok. Teknis", tulis isinya. JIKA TIDAK ADA, tulis persis: "Kendala terkait penyusunan dokumen teknis tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
+Verifikasi dokumen teknis: [Penjelasan objektif]. [JIKA di JSON ada label "Kendala Verifikasi Dok. Teknis", tulis isinya. JIKA TIDAK ADA, tulis persis: "Kendala terkait verifikasi dokumen teknis tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
+Verifikasi dokumen teknis "Sesuai": [Penjelasan objektif]. [JIKA di JSON ada label "Kendala Verifikasi Dok. Teknis", tulis isinya. JIKA TIDAK ADA, tulis persis: "Kendala terkait kesesuaian dokumen teknis tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
 
 Catatan lain:
 - [Jelaskan sisa metrik yang belum dibahas di atas HANYA JIKA bermasalah, seperti Biodata, Dapodik, Keterhubungan, Panlak, Template. Ingat, jika ada metrik di catatan lain ini yang belum 100%, cantumkan juga kalimat Keterangan Kendala wajibnya jika tidak ada catatan kualitatif].
