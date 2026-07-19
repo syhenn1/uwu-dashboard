@@ -154,7 +154,7 @@ export function AllFasilRawMatriksTable({ rows }: { rows: FacilRow[] }) {
               return (
                 <tr key={rowIdx} className="transition-colors hover:bg-background/40">
                   <td className={`sticky left-0 z-10 whitespace-nowrap px-2 py-1 text-center shadow-[1px_0_0_0_var(--tw-shadow-color)] shadow-border bg-surface/95 backdrop-blur-sm ${skorColor}`}>
-                    {row.skorAkhir != null ? (Number.isInteger(row.skorAkhir) ? `${row.skorAkhir}%` : `${row.skorAkhir.toFixed(2)}%`) : "-"}
+                    {typeof row.skorAkhir === "number" ? (Number.isInteger(row.skorAkhir) ? `${row.skorAkhir}%` : `${row.skorAkhir.toFixed(2)}%`) : (row.skorAkhir != null ? `${row.skorAkhir}%` : "-")}
                   </td>
                   <td className="sticky left-[64px] z-10 whitespace-normal bg-surface/95 px-2 py-1 font-medium backdrop-blur-sm shadow-[1px_0_0_0_var(--tw-shadow-color)] shadow-border">
                     <div className="flex flex-col">
