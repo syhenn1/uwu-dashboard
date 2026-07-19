@@ -14,7 +14,7 @@ import Papa from "papaparse";
  * selalu mengarah ke tab PERTAMA/default spreadsheet itu, gid diasumsikan
  * "0" - tab data sebenarnya, "Isian", ada di gid lain, lihat lib/sheet.ts).
  */
-const FASILITATOR_HEADER_ANCHOR = "Atmin,";
+const FASILITATOR_HEADER_ANCHOR = '"Atmin","Kode Fasil","Nama Fasil"';
 
 export interface ControllerFacilitatorEntry {
   atmin: string;
@@ -78,7 +78,7 @@ export async function getControllerEntries(): Promise<ControllerFacilitatorEntry
 
   const rawCsv = await res.text();
   const lines = rawCsv.split(/\r\n|\n/);
-  const headerIdx = lines.findIndex((l) => l.startsWith(FASILITATOR_HEADER_ANCHOR));
+  const headerIdx = lines.findIndex((l) => l.includes(FASILITATOR_HEADER_ANCHOR) || l.includes('Atmin,Kode Fasil,Nama Fasil'));
   if (headerIdx === -1) {
     console.warn('[controller] Baris header ("Atmin, Kode Fasil, Nama Fasil, ... LK Log") tidak ditemukan di tab "Daftar Fasilitator".');
     return cache?.entries ?? [];
