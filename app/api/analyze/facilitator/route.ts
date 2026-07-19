@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     console.log(`\n\n--- [AI DEBUG] INPUT TO LLM UNTUK ${kodeFasil} ---`);
     console.log(JSON.stringify(messages, null, 2));
 
-    const result = await callLLM(messages);
+    const result = await callLLM(messages, { maxTokens: 1200 });
     
     console.log(`\n\n--- [AI DEBUG] OUTPUT DARI LLM UNTUK ${kodeFasil} ---`);
     console.log(result);

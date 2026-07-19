@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     const prevDayRows = hari > 1 ? getRowsForDay(rows, hari - 1) : [];
 
     const messages = buildDailySummaryMessages(dayRows, hari, prevDayRows);
-    const result = await callLLM(messages);
+    const result = await callLLM(messages, { maxTokens: 1200 });
     return NextResponse.json({ result });
   } catch (err) {
     const message = err instanceof Error ? err.message : "Terjadi kesalahan tak terduga.";

@@ -362,6 +362,45 @@ export function buildFacilitatorAnalysisMessages(
     )
   };
 
+  const templateLines: string[] = [];
+  if ((latest.pctSekolahBelumLoginAplikasi as number ?? 0) > 0) {
+    templateLines.push(`Sekolah login aplikasi: [Penjelasan]. [Tulis persis: "Kendala terkait sekolah login aplikasi tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]`);
+  }
+  if ((latest.pctTidakPunyaPerencanaLK as number ?? 0) > 0) {
+    templateLines.push(`Perencana: [Penjelasan]. [JIKA di JSON ada "Kendala Mendapatkan Perencana", tulis isinya. JIKA TIDAK ADA, tulis: "Kendala terkait perencana tidak teridentifikasi..."]`);
+  }
+  if (Math.round((latest.rataDokAdminTerunggah as number ?? 0) * 100) < 10000) {
+    templateLines.push(`Unggah dokumen admin: [Penjelasan + Penjabaran /220 dokumen]. [JIKA di JSON ada "Kendala Penyusunan Dok. Admin", tulis isinya. JIKA TIDAK ADA, tulis default]`);
+  }
+  if (Math.round((latest.rataDokAdminTerverifikasi as number ?? 0) * 100) < 10000) {
+    templateLines.push(`Verifikasi dokumen admin: [Penjelasan]. [JIKA di JSON ada "Kendala Verifikasi Dok. Admin", tulis isinya. JIKA TIDAK ADA, tulis default]`);
+  }
+  if (Math.round((latest.rataDokAdminSesuai as number ?? 0) * 100) < 10000) {
+    templateLines.push(`Verifikasi dokumen admin "Sesuai": [Penjelasan]. [JIKA di JSON ada "Kendala Verifikasi Dok. Admin", tulis isinya. JIKA TIDAK ADA, tulis default]`);
+  }
+  if (Math.round((latest.rataDokTeknisTerunggah as number ?? 0) * 100) < 10000) {
+    templateLines.push(`Unggah dokumen teknis: [Penjelasan + Penjabaran /120 dokumen]. [JIKA di JSON ada "Kendala Penyusunan Dok. Teknis", tulis isinya. JIKA TIDAK ADA, tulis default]`);
+  }
+  if (Math.round((latest.rataDokTeknisTerverifikasi as number ?? 0) * 100) < 10000) {
+    templateLines.push(`Verifikasi dokumen teknis: [Penjelasan]. [JIKA di JSON ada "Kendala Verifikasi Dok. Teknis", tulis isinya. JIKA TIDAK ADA, tulis default]`);
+  }
+  if (Math.round((latest.rataDokTeknisSesuai as number ?? 0) * 100) < 10000) {
+    templateLines.push(`Verifikasi dokumen teknis "Sesuai": [Penjelasan]. [JIKA di JSON ada "Kendala Verifikasi Dok. Teknis", tulis isinya. JIKA TIDAK ADA, tulis default]`);
+  }
+
+  const sisaBermasalah =
+    (latest.pctBiodataBelumTerverifikasi as number ?? 0) > 0 ||
+    (latest.pctDapodikTidakSesuaiBelumUpdate as number ?? 0) > 0 ||
+    (latest.pctSekolahBelumDihubungi as number ?? 0) > 0 ||
+    (latest.pctTidakPunyaPanlak as number ?? 0) > 0 ||
+    (latest.pctTidakPunyaFormatTemplate as number ?? 0) > 0;
+
+  if (sisaBermasalah) {
+    templateLines.push(`\nCatatan lain:\n- [Jelaskan HANYA metrik sisa yang bermasalah (Biodata, Dapodik, dsb) beserta keterangan kendalanya. DILARANG menyebut metrik yang sudah 100%]`);
+  }
+
+  const dynamicFormat = templateLines.join("\n");
+
   const userPrompt = `## Data Fasilitator
 \`\`\`json
 ${JSON.stringify(promptData, null, 2)}
@@ -390,17 +429,7 @@ Nilai capaian fasil atas [Nama Fasil] berada di angka [Skor Akhir]. [Beri 1-2 ka
 
 Checkpoint wajib untuk hari ke-${maxDay} yaitu [Sebutkan checkpoint hari ini dan tujuannya]. Namun, sampai saat ini [sebutkan progresnya, misal: tidak ada sekolah yang sudah sepakat RAB (0%)]. Beberapa hal berikut berpotensi berpengaruh terhadap capaian tersebut:
 
-Sekolah login aplikasi: [Penjelasan objektif]. [Tulis persis: "Kendala terkait sekolah login aplikasi tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
-Perencana: [Penjelasan objektif]. [JIKA di JSON ada label "Kendala Mendapatkan Perencana", tulis isinya. JIKA TIDAK ADA, tulis persis: "Kendala terkait perencana tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
-Unggah dokumen admin: [Penjelasan objektif + Penjabaran angka /220 dokumen]. [JIKA di JSON ada label "Kendala Penyusunan Dok. Admin", tulis isinya. JIKA TIDAK ADA, tulis persis: "Kendala terkait penyusunan dokumen admin tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
-Verifikasi dokumen admin: [Penjelasan objektif]. [JIKA di JSON ada label "Kendala Verifikasi Dok. Admin", tulis isinya. JIKA TIDAK ADA, tulis persis: "Kendala terkait verifikasi dokumen admin tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
-Verifikasi dokumen admin "Sesuai": [Penjelasan objektif]. [JIKA di JSON ada label "Kendala Verifikasi Dok. Admin", tulis isinya. JIKA TIDAK ADA, tulis persis: "Kendala terkait kesesuaian dokumen admin tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
-Unggah dokumen teknis: [Penjelasan objektif + Penjabaran angka /120 dokumen]. [JIKA di JSON ada label "Kendala Penyusunan Dok. Teknis", tulis isinya. JIKA TIDAK ADA, tulis persis: "Kendala terkait penyusunan dokumen teknis tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
-Verifikasi dokumen teknis: [Penjelasan objektif]. [JIKA di JSON ada label "Kendala Verifikasi Dok. Teknis", tulis isinya. JIKA TIDAK ADA, tulis persis: "Kendala terkait verifikasi dokumen teknis tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
-Verifikasi dokumen teknis "Sesuai": [Penjelasan objektif]. [JIKA di JSON ada label "Kendala Verifikasi Dok. Teknis", tulis isinya. JIKA TIDAK ADA, tulis persis: "Kendala terkait kesesuaian dokumen teknis tidak teridentifikasi karena fasil tidak mengisi informasi terkait hal di LK Fasil."]
-
-Catatan lain:
-- [Jelaskan sisa metrik yang belum dibahas di atas HANYA JIKA bermasalah, seperti Biodata, Dapodik, Keterhubungan, Panlak, Template. Ingat, jika ada metrik di catatan lain ini yang belum 100%, cantumkan juga kalimat Keterangan Kendala wajibnya jika tidak ada catatan kualitatif].
+${dynamicFormat}
 
 PENTING MUTLAK: Gunakan HANYA data dari JSON "Data Fasilitator" untuk menyusun angka-angkanya.`;
 
