@@ -349,6 +349,8 @@ export function FacilitatorAnalysisWorkbench({
   const [excludeAplikasi, setExcludeAplikasi] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copying" | "done" | "error">("idle");
   const [copyError, setCopyError] = useState<string | null>(null);
+  const [copyAnalysisState, setCopyAnalysisState] = useState<"idle" | "copying" | "done" | "error">("idle");
+  const [copyAnalysisError, setCopyAnalysisError] = useState<string | null>(null);
 
   async function generate() {
     // Field ini bisa sudah berisi hasil sebelumnya (diedit manual, generate
@@ -396,6 +398,20 @@ export function FacilitatorAnalysisWorkbench({
     } catch (err) {
       setCopyState("error");
       setCopyError(err instanceof Error ? err.message : "Gagal menyalin prompt.");
+    }
+  }
+
+  async function copyAnalysis() {
+    if (!hasil.trim()) return;
+    setCopyAnalysisState("copying");
+    setCopyAnalysisError(null);
+    try {
+      await navigator.clipboard.writeText(hasil);
+      setCopyAnalysisState("done");
+      setTimeout(() => setCopyAnalysisState("idle"), 2000);
+    } catch (err) {
+      setCopyAnalysisState("error");
+      setCopyAnalysisError(err instanceof Error ? err.message : "Gagal menyalin analisis.");
     }
   }
 
@@ -508,8 +524,18 @@ export function FacilitatorAnalysisWorkbench({
           >
             {saveState === "saving" ? "Menyimpan..." : "Simpan ke Spreadsheet"}
           </button>
+          
+          <button
+            onClick={copyAnalysis}
+            disabled={copyAnalysisState === "copying" || !hasil.trim()}
+            className="rounded-md border border-border px-4 py-2 text-xs font-semibold text-ink-primary shadow-sm transition-all hover:bg-surface-hover hover:border-series-1 disabled:opacity-50"
+          >
+            {copyAnalysisState === "copying" ? "Menyalin..." : copyAnalysisState === "done" ? "✓ Tersalin" : "Copy Analisis"}
+          </button>
+
           {saveState === "done" && <span className="text-xs font-medium text-status-good">✓ Tersimpan (Kolom Analisis Hari {hari})</span>}
           {saveState === "error" && <span className="text-xs text-status-critical">{saveError}</span>}
+          {copyAnalysisError && <span className="text-xs text-status-critical">{copyAnalysisError}</span>}
         </div>
       </div>
     </div>
