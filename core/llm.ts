@@ -18,7 +18,7 @@ interface Provider {
   name: string;
   envVar: string;
   configured: () => boolean;
-  call: (messages: ChatMessage[], opts?: CallOpts) => Promise<ProviderResult>;
+  call: (messages: ChatMessage[], opts?: CallOpts, overrideApiKey?: string) => Promise<ProviderResult>;
 }
 
 function log(...args: unknown[]) {
@@ -27,8 +27,8 @@ function log(...args: unknown[]) {
 
 // --- Hugging Face (Llama, lewat HF Inference Providers router - OpenAI-compatible) ---
 
-async function callHuggingFace(messages: ChatMessage[], opts?: CallOpts): Promise<ProviderResult> {
-  const token = process.env.HF_TOKEN!;
+async function callHuggingFace(messages: ChatMessage[], opts?: CallOpts, overrideApiKey?: string): Promise<ProviderResult> {
+  const token = overrideApiKey || process.env.HF_TOKEN!;
   const model = process.env.HF_MODEL || "meta-llama/Llama-4-Scout-17B-16E-Instruct";
 
   const res = await fetch("https://router.huggingface.co/v1/chat/completions", {
@@ -56,8 +56,8 @@ async function callHuggingFace(messages: ChatMessage[], opts?: CallOpts): Promis
 
 // --- Google Gemini (Google AI Studio - generativelanguage.googleapis.com) ---
 
-async function callGemini(messages: ChatMessage[], opts?: CallOpts): Promise<ProviderResult> {
-  const apiKey = process.env.GEMINI_API_KEY!;
+async function callGemini(messages: ChatMessage[], opts?: CallOpts, overrideApiKey?: string): Promise<ProviderResult> {
+  const apiKey = overrideApiKey || process.env.GEMINI_API_KEY!;
   const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
   const systemMsg = messages.find((m) => m.role === "system")?.content;
@@ -95,8 +95,8 @@ async function callGemini(messages: ChatMessage[], opts?: CallOpts): Promise<Pro
 
 // --- Groq (llama/mixtral cloud-hosted super cepat, OpenAI-compatible, free tier) ---
 
-async function callGroq(messages: ChatMessage[], opts?: CallOpts): Promise<ProviderResult> {
-  const apiKey = process.env.GROQ_API_KEY!;
+async function callGroq(messages: ChatMessage[], opts?: CallOpts, overrideApiKey?: string): Promise<ProviderResult> {
+  const apiKey = overrideApiKey || process.env.GROQ_API_KEY!;
   const model = process.env.GROQ_MODEL || "llama-3.3-70b-versatile";
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -124,8 +124,8 @@ async function callGroq(messages: ChatMessage[], opts?: CallOpts): Promise<Provi
 
 // --- OpenRouter (router ke banyak model termasuk Llama gratis, OpenAI-compatible) ---
 
-async function callOpenRouter(messages: ChatMessage[], opts?: CallOpts): Promise<ProviderResult> {
-  const apiKey = process.env.OPENROUTER_API_KEY!;
+async function callOpenRouter(messages: ChatMessage[], opts?: CallOpts, overrideApiKey?: string): Promise<ProviderResult> {
+  const apiKey = overrideApiKey || process.env.OPENROUTER_API_KEY!;
   const model = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct:free";
 
   const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -153,8 +153,8 @@ async function callOpenRouter(messages: ChatMessage[], opts?: CallOpts): Promise
 
 // --- OpenAI (GPT models - api.openai.com, berbayar) ---
 
-async function callOpenAI(messages: ChatMessage[], opts?: CallOpts): Promise<ProviderResult> {
-  const apiKey = process.env.OPENAI_API_KEY!;
+async function callOpenAI(messages: ChatMessage[], opts?: CallOpts, overrideApiKey?: string): Promise<ProviderResult> {
+  const apiKey = overrideApiKey || process.env.OPENAI_API_KEY!;
   const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
   const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -203,15 +203,31 @@ export function configuredProviderNames(): string[] {
   return PROVIDERS.filter((p) => p.configured()).map((p) => p.name);
 }
 
+export interface LLMOverride {
+  provider: string;
+  apiKey: string;
+}
+
 /** Memanggil LLM lewat provider pertama yang dikonfigurasi & berhasil, dengan
  * fallback otomatis ke provider berikutnya kalau gagal. Logs each attempt to
  * the terminal (provider, durasi, token in/out) so AI activity is visible
  * while `npm run dev` is running. */
-export async function callLLM(messages: ChatMessage[], opts?: CallOpts): Promise<string> {
-  const candidates = PROVIDERS.filter((p) => p.configured());
+export async function callLLM(messages: ChatMessage[], opts?: CallOpts, override?: LLMOverride): Promise<string> {
+  let candidates: Provider[] = [];
+  
+  if (override?.provider && override?.apiKey) {
+    const matched = PROVIDERS.find(p => p.name.toLowerCase() === override.provider.toLowerCase() || p.envVar === override.provider || p.name === override.provider);
+    if (matched) {
+      candidates = [matched];
+    } else {
+      throw new Error(`Provider AI tidak didukung: ${override.provider}`);
+    }
+  } else {
+    candidates = PROVIDERS.filter((p) => p.configured());
+  }
+
   if (candidates.length === 0) {
-    const err =
-      "Belum ada provider AI dikonfigurasi. Isi salah satu di .env.local: HF_TOKEN, GEMINI_API_KEY, GROQ_API_KEY, OPENROUTER_API_KEY, atau OPENAI_API_KEY.";
+    const err = "Belum ada konfigurasi provider AI. Silakan masukkan API Key Anda.";
     log(err);
     throw new Error(err);
   }
@@ -223,7 +239,10 @@ export async function callLLM(messages: ChatMessage[], opts?: CallOpts): Promise
     const startedAt = Date.now();
     log(`-> mencoba "${provider.name}" (${messages.length} pesan, ~${promptChars} karakter prompt)...`);
     try {
-      const result = await provider.call(messages, opts);
+      const isOverride = override?.provider && (provider.name.toLowerCase() === override.provider.toLowerCase() || provider.envVar === override.provider);
+      const apiKeyToUse = isOverride ? override.apiKey : undefined;
+      const result = await provider.call(messages, opts, apiKeyToUse);
+      
       const durationMs = Date.now() - startedAt;
       log(
         `<- "${provider.name}" berhasil dalam ${durationMs}ms, ${result.content.length} karakter dihasilkan` +
@@ -232,11 +251,6 @@ export async function callLLM(messages: ChatMessage[], opts?: CallOpts): Promise
       return result.content;
     } catch (err) {
       const durationMs = Date.now() - startedAt;
-      // "fetch failed" sendiri tidak bilang APA yang gagal (DNS? timeout?
-      // koneksi ditolak?) - penyebab sebenarnya ada di `cause` (mis. "getaddrinfo
-      // ENOTFOUND ...", "ECONNREFUSED", "ETIMEDOUT") tapi tidak otomatis masuk
-      // ke `message`. Sertakan eksplisit supaya log/pesan error berikutnya
-      // langsung actionable, bukan cuma "fetch failed" yang generik.
       const baseMsg = err instanceof Error ? err.message : String(err);
       const cause = err instanceof Error && err.cause ? ` (cause: ${String(err.cause)})` : "";
       const msg = `${baseMsg}${cause}`;

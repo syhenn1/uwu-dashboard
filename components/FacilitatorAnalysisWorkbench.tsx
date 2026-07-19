@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import type { FacilRow } from "@uwu/core/types";
 import { QUALITATIVE_FIELDS, type NoteRange } from "@uwu/core/notes";
@@ -386,6 +386,39 @@ export function FacilitatorAnalysisWorkbench({
   const [copyAnalysisState, setCopyAnalysisState] = useState<"idle" | "copying" | "done" | "error">("idle");
   const [copyAnalysisError, setCopyAnalysisError] = useState<string | null>(null);
 
+  const [showConfig, setShowConfig] = useState(false);
+  const [aiProvider, setAiProvider] = useState<string>("Google Gemini");
+  const [aiKeys, setAiKeys] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const savedProvider = localStorage.getItem("uwu_ai_provider") || "Google Gemini";
+    setAiProvider(savedProvider);
+    try {
+      const savedKeys = localStorage.getItem("uwu_ai_keys");
+      if (savedKeys) {
+        setAiKeys(JSON.parse(savedKeys));
+      } else {
+        // Fallback migrasi jika sebelumnya pakai single key
+        const oldKey = localStorage.getItem("uwu_ai_key");
+        if (oldKey) {
+          setAiKeys({ [savedProvider]: oldKey });
+        }
+      }
+    } catch {
+      // Abaikan error parse
+    }
+  }, []);
+
+  function saveConfig() {
+    localStorage.setItem("uwu_ai_provider", aiProvider);
+    localStorage.setItem("uwu_ai_keys", JSON.stringify(aiKeys));
+    setShowConfig(false);
+  }
+
+  function handleKeyChange(val: string) {
+    setAiKeys(prev => ({ ...prev, [aiProvider]: val }));
+  }
+
   async function generate() {
     // Field ini bisa sudah berisi hasil sebelumnya (diedit manual, generate
     // AI sebelumnya, ATAU ke-prefill dari spreadsheet lewat existingAnalisis
@@ -397,7 +430,7 @@ export function FacilitatorAnalysisWorkbench({
     setGenError(null);
     try {
       const basePayload = mode === "alltime" ? { kodeFasil: row.kodeFasil } : { kodeFasil: row.kodeFasil, hari };
-      const payload = { ...basePayload, excludeAplikasi, history };
+      const payload = { ...basePayload, excludeAplikasi, history, aiProvider, aiKey: aiKeys[aiProvider] || "" };
       const res = await fetch("/api/analyze/facilitator", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -514,6 +547,13 @@ export function FacilitatorAnalysisWorkbench({
               {copyState === "copying" ? "Menyiapkan..." : copyState === "done" ? "✓ Tersalin" : "Copy Prompt"}
             </button>
             <button
+              onClick={() => setShowConfig(!showConfig)}
+              title="Konfigurasi API Key Pribadi"
+              className="flex items-center gap-1 rounded-md border border-border px-2 py-1.5 text-xs text-ink-secondary hover:border-series-1 hover:text-ink-primary"
+            >
+              ⚙️
+            </button>
+            <button
               onClick={generate}
               disabled={generating}
               className="rounded-md bg-series-1 px-3 py-1.5 text-xs font-medium text-white shadow-sm transition-all hover:bg-series-1/90 disabled:opacity-50"
@@ -522,6 +562,46 @@ export function FacilitatorAnalysisWorkbench({
             </button>
           </div>
         </div>
+        
+        {showConfig && (
+          <div className="flex flex-col gap-2 rounded-md bg-background border border-border p-3 text-xs mb-2">
+            <div className="font-semibold text-ink-primary">Konfigurasi API Key Pribadi</div>
+            <div className="text-ink-secondary mb-1">Gunakan kunci API milik Anda sendiri agar tidak terbentur limit global.</div>
+            <div className="flex items-center gap-3">
+              <label className="flex flex-col gap-1 w-1/3">
+                <span className="font-medium text-ink-primary">Provider</span>
+                <select 
+                  value={aiProvider} 
+                  onChange={(e) => setAiProvider(e.target.value)}
+                  className="rounded border border-border px-2 py-1.5 bg-surface text-ink-primary focus:border-series-1 focus:outline-none"
+                >
+                  <option value="Google Gemini">Google Gemini</option>
+                  <option value="Groq">Groq</option>
+                  <option value="OpenRouter">OpenRouter</option>
+                  <option value="Hugging Face">Hugging Face</option>
+                  <option value="OpenAI">OpenAI</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 w-2/3">
+                <span className="font-medium text-ink-primary">API Key</span>
+                <input 
+                  type="password"
+                  value={aiKeys[aiProvider] || ""}
+                  onChange={(e) => handleKeyChange(e.target.value)}
+                  placeholder={`Masukkan API Key untuk ${aiProvider}`}
+                  className="rounded border border-border px-2 py-1.5 bg-surface text-ink-primary focus:border-series-1 focus:outline-none"
+                />
+              </label>
+            </div>
+            <button 
+              onClick={saveConfig}
+              className="mt-1 w-fit rounded-md bg-series-1/10 px-3 py-1 font-medium text-series-1 hover:bg-series-1 hover:text-white transition-colors"
+            >
+              Simpan Konfigurasi
+            </button>
+          </div>
+        )}
+
         <div className="flex gap-4">
           <span className="text-xs font-bold text-red-500">Harap cek ulang hasil generate analisis, karena AI nya bisa ngawur cok!</span>
         </div>
