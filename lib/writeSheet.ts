@@ -1,4 +1,15 @@
+import { revalidateTag } from "next/cache";
 import { getControllerEntry } from "./controller";
+
+/** Tag cache Next.js buat isi tabel log (tab "Analisis" dkk) SATU
+ * spreadsheet LK Log pribadi fasilitator - dipakai supaya cache 20 detik di
+ * findLogTable() BISA di-invalidate paksa begitu ada tulisan baru
+ * (pushAnalysisToSheet), tanpa harus nunggu TTL habis ATAU korbankan
+ * kecepatan baca yang tidak terkait tulisan (baca fasilitator lain, atau
+ * baca yang sama tapi >20 detik sebelum tulisan terakhir). */
+function analisisCacheTag(spreadsheetId: string): string {
+  return `analisis-sheet-${spreadsheetId}`;
+}
 
 export interface AnalysisSaveItem {
   kodeFasil: string;
@@ -49,7 +60,15 @@ async function findLogTable(spreadsheetId: string, accessToken: string) {
     const range = encodeURIComponent(`${sheetName}!A1:Z500`);
     const valRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?majorDimension=ROWS`, {
       headers: { Authorization: `Bearer ${accessToken}` },
-      cache: 'no-store'
+      // Sebelumnya 'no-store' - PALING lambat di seluruh alur baca fasilitator
+      // (round-trip ke Sheets API per tab, tanpa cache sama sekali), jadi tiap
+      // pindah fasilitator/hari SELALU nunggu ini dari nol. Cache 20 detik
+      // bikin prefetch + klik "Selanjutnya" berturut-turut kerasa instan -
+      // ditandai tag per-spreadsheet supaya begitu ada yang "Simpan"
+      // (pushAnalysisToSheet di bawah), cache-nya langsung dipaksa basi SAAT
+      // ITU JUGA (revalidateTag), BUKAN nunggu 20 detik - jadi tidak ada lagi
+      // risiko lihat hasil lama abis Simpan.
+      next: { revalidate: 20, tags: [analisisCacheTag(spreadsheetId)] },
     });
     if (!valRes.ok) continue;
     const valData = await valRes.json();
@@ -189,6 +208,13 @@ export async function pushAnalysisToSheet(items: AnalysisSaveItem[], accessToken
       });
       if (!updateRes.ok) {
         groupItems.forEach((i) => notFound.push(`${label} Hari ${i.hari} (gagal nulis nilai)`));
+      } else {
+        // Paksa cache 20 detik di findLogTable() basi SEKARANG (bukan nunggu
+        // TTL) - pembacaan berikutnya (mis. pindah hari lalu balik lagi)
+        // pasti dapat teks yang baru saja ditulis, bukan versi lama. Next.js
+        // 16 mewajibkan argumen ke-2 (profile) - { expire: 0 } = "basi
+        // sekarang juga", tidak terikat nama profile cacheLife tertentu.
+        revalidateTag(analisisCacheTag(spreadsheetId), { expire: 0 });
       }
     }
   }
