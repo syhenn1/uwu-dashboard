@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getFacilRowsForSelectedAdmin, getTodayHari, getFacilitatorLogData } from "@/lib/sheet";
-import { fetchAnalisisFromSheet } from "@/lib/writeSheet";
+import { fetchAnalisisTable } from "@/lib/writeSheet";
 import { auth } from "@/lib/auth";
 import { getRowsForFacilitator, riskLevel, getEffectiveRisk, getCurrentRow, getFacilitators } from "@uwu/core/metrics";
 import { configuredProviderNames } from "@uwu/core/llm";
@@ -39,10 +39,11 @@ export default async function FacilitatorDetailPage({
   // @ts-expect-error accessToken ada di config JWT NextAuth kita
   const accessToken = session?.accessToken;
 
-  // fetchAnalisisFromSheet (sekarang lewat REST API Sheets) TERUKUR cepat
-  // karena caching sheet metadata. Tapi tetap kita jalankan paralel.
-  const eagerHari = mode === "harian" && hariParam ? parseInt(hariParam, 10) : null;
-  const eagerAnalisis = eagerHari != null ? fetchAnalisisFromSheet(kode, eagerHari, accessToken) : null;
+  // fetchAnalisisTable (lewat REST API Sheets) TERUKUR cepat karena caching
+  // metadata sheet - jalankan paralel dari awal (satu fetch ambil SEMUA hari
+  // sekaligus, dipakai buat prefill textarea DAN status per-hari di
+  // DaySelector, lihat missingAnalysisDays di bawah).
+  const analisisTablePromise = fetchAnalisisTable(kode, accessToken);
 
   // v2: link "LK Log" (editUrl, kolom F) & "LK Fasilitator" (lkFasilEditUrl,
   // kolom G - LK Fasil pribadi sebenarnya, lihat lib/controller.ts) & histori
@@ -90,14 +91,18 @@ export default async function FacilitatorDetailPage({
   const relLabel = hariRelativeLabel(hari, todayHari);
 
   // Isi kolom "Analisis" yang SUDAH ADA di spreadsheet (tabel log harian,
-  // bukan tab "Isian" yang di-fetch getFacilRows() - lihat fetchAnalisisFromSheet)
+  // bukan tab "Isian" yang di-fetch getFacilRows() - lihat fetchAnalisisTable)
   // untuk Hari yang lagi dilihat, supaya field di FacilitatorAnalysisWorkbench
   // ke-prefill dan bisa diedit lagi, bukan selalu kosong. null (gagal-lunak
-  // di banyak kondisi) berarti workbench fallback ke kosong seperti sebelumnya.
-  // Pakai hasil eagerAnalisis (sudah jalan paralel di atas) kalau `hari`
-  // final cocok dengan eagerHari - cuma fallback sequential kalau belum ada
-  // (alltime, atau kunjungan pertama tanpa hariParam di URL).
-  const existingAnalisis = eagerHari === hari && eagerAnalisis ? await eagerAnalisis : await fetchAnalisisFromSheet(kode, hari, accessToken);
+  // di banyak kondisi, termasuk kalau belum login Google/tabel gagal diakses)
+  // berarti workbench fallback ke kosong seperti sebelumnya.
+  const analisisTable = await analisisTablePromise;
+  const existingAnalisis = analisisTable?.get(hari) || null;
+  // Dipakai DaySelector buat nandain tombol hari yang SUDAH lewat/hari ini
+  // tapi BELUM ada hasil analisis tersimpan (merah + "!") - undefined (bukan
+  // Set kosong) kalau tabelnya gagal diambil sama sekali, supaya DaySelector
+  // tidak salah nandain SEMUA hari sebagai "belum ada" padahal cuma gagal fetch.
+  const missingAnalysisDays = analisisTable ? new Set(days.filter((d) => !(analisisTable.get(d) ?? "").trim())) : undefined;
 
   const notes = buildNoteRanges(history, QUALITATIVE_FIELDS, (text) => text !== "Belum Diisi");
   const unfilled = buildNoteRanges(history, QUALITATIVE_FIELDS, (text) => text === "Belum Diisi");
@@ -169,7 +174,13 @@ export default async function FacilitatorDetailPage({
         <div className="flex flex-col items-end gap-2">
           <ModeToggle mode={mode} basePath={`/fasilitator/${kode}`} />
           {mode === "harian" && (
-            <DaySelector days={days} current={hari} basePath={`/fasilitator/${kode}`} todayHari={todayHari} />
+            <DaySelector
+              days={days}
+              current={hari}
+              basePath={`/fasilitator/${kode}`}
+              todayHari={todayHari}
+              missingAnalysisDays={missingAnalysisDays}
+            />
           )}
         </div>
       </div>

@@ -71,7 +71,12 @@ async function findLogTable(spreadsheetId: string, accessToken: string) {
   return null;
 }
 
-export async function fetchAnalisisFromSheet(kodeFasil: string, hari: number, accessToken?: string): Promise<string | null> {
+/** Seluruh isi kolom "Analisis" (hari -> teksnya, string kosong kalau
+ * kolomnya kosong) dari tabel log SATU fasilitator - satu fetch dipakai buat
+ * prefill textarea hari yang lagi dilihat SEKALIGUS status "sudah/belum ada
+ * analisis" per hari (mis. buat DaySelector), jangan fetch per-hari
+ * berulang-ulang cuma buat baca kolom yang sama. */
+export async function fetchAnalisisTable(kodeFasil: string, accessToken?: string): Promise<Map<number, string> | null> {
   if (!accessToken) return null;
   const entry = await getControllerEntry(kodeFasil);
   if (!entry) return null;
@@ -80,18 +85,18 @@ export async function fetchAnalisisFromSheet(kodeFasil: string, hari: number, ac
     const found = await findLogTable(entry.spreadsheetId, accessToken);
     if (!found) return null;
 
+    const byHari = new Map<number, string>();
     for (let r = found.headerRow + 1; r < found.values.length; r++) {
       const rowHariRaw = normalize(found.values[r][found.hariCol]);
       const rowHari = parseInt(rowHariRaw, 10);
-      if (!isNaN(rowHari) && rowHari === hari) {
-        const hasil = normalize(found.values[r][found.analisisCol]);
-        return hasil === "" ? null : hasil;
-      }
+      if (isNaN(rowHari)) continue;
+      byHari.set(rowHari, normalize(found.values[r][found.analisisCol]));
     }
+    return byHari;
   } catch (err) {
-    console.warn(`[writeSheet] fetchAnalisisFromSheet error: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`[writeSheet] fetchAnalisisTable error: ${err instanceof Error ? err.message : String(err)}`);
+    return null;
   }
-  return null;
 }
 
 /** Mengonversi nomor kolom 0-based jadi huruf (misal: 0 -> A, 25 -> Z, 26 -> AA) */
