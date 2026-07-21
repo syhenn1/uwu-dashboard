@@ -53,10 +53,15 @@ async function findLogTable(spreadsheetId: string, accessToken: string) {
     throw new Error(`Gagal akses spreadsheet (HTTP ${metaRes.status}): ${detailMsg}`);
   }
   const metaData = await metaRes.json();
-  const sheets: string[] = metaData.sheets?.map((s: any) => s.properties.title) || [];
+  const allSheets: string[] = metaData.sheets?.map((s: any) => s.properties.title) || [];
+  
+  // OPTIMASI SUPER CEPAT:
+  // Daripada me-looping SEMUA tab (yang bisa memakan waktu 10-20 detik), 
+  // kita cukup mencari tab yang bernama "Log" atau "Isian" saja.
+  const targetSheets = allSheets.filter(s => s === "Log" || s === "Isian" || s.toLowerCase().includes("log"));
 
-  // 2. Fetch data dari tiap sheet secara bergiliran (atau bisa batch, tapi ini lebih aman)
-  for (const sheetName of sheets) {
+  // 2. Fetch data HANYA dari tab target
+  for (const sheetName of (targetSheets.length > 0 ? targetSheets : allSheets)) {
     const range = encodeURIComponent(`${sheetName}!A1:Z500`);
     const valRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}?majorDimension=ROWS`, {
       headers: { Authorization: `Bearer ${accessToken}` },
