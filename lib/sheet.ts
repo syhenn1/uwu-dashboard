@@ -70,7 +70,7 @@ export async function getFacilRows(): Promise<FacilRow[]> {
       for (const row of logRows) {
         const key = `${row.namaFasil}-${row.hari}`;
         const prev = rowsByFasilAndDay.get(key);
-        if (!prev || row.logNumber > prev.logNumber) {
+        if (!prev || row.logNumber >= prev.logNumber) {
           rowsByFasilAndDay.set(key, row);
         }
       }
