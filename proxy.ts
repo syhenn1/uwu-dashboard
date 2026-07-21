@@ -4,7 +4,7 @@ import { SELECTED_ADMIN_COOKIE } from "@/lib/selectedAdmin";
 import { ADMIN_EMAIL_MAP } from "@/lib/admins";
 
 /** Path yang boleh diakses TANPA login sama sekali. */
-const PUBLIC_PATHS = ["/login", "/api/auth"];
+const PUBLIC_PATHS = ["/login", "/api/auth", "/api/cron"];
 /** Path yang butuh login, tapi TIDAK butuh pemilihan admin dulu (ini justru
  * halaman untuk memilihnya). */
 const SKIP_ADMIN_PICK_PATHS = ["/pilih-admin"];

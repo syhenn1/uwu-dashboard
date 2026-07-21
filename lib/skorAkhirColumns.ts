@@ -124,9 +124,14 @@ export function parsePercentCell(raw: string | undefined | null): number | null 
   if (raw == null) return null;
   const trimmed = raw.trim();
   if (trimmed === "" || trimmed === "#DIV/0!") return null;
-  const cleaned = trimmed.endsWith("%") ? trimmed.slice(0, -1) : trimmed;
-  const n = parseFloat(cleaned);
-  return Number.isNaN(n) ? null : n;
+  const isPercentStr = trimmed.includes("%");
+  const cleaned = isPercentStr ? trimmed.replace("%", "") : trimmed;
+  let n = parseFloat(cleaned);
+  if (Number.isNaN(n)) return null;
+  if (!isPercentStr && n <= 1 && n !== 0) {
+    n = n * 100;
+  }
+  return n;
 }
 
 /** Kelas warna sel tabel raw (RawMatriksTable/TodayLogPanel) berdasar nilai

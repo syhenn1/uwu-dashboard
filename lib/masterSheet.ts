@@ -16,16 +16,16 @@ import { SKOR_AKHIR_COLUMNS, applySkorAkhirColumns, parsePercentCell } from "./s
  * hardcode contoh nilai aslinya di project ini, cuma struktur/nama kolom.
  */
 
-function extractSpreadsheetId(url: string): string | null {
+export function extractSpreadsheetId(url: string): string | null {
   const match = url.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
   return match ? match[1] : null;
 }
 
-function gvizCsvUrl(spreadsheetId: string, sheetName: string): string {
+export function gvizCsvUrl(spreadsheetId: string, sheetName: string): string {
   return `https://docs.google.com/spreadsheets/d/${spreadsheetId}/gviz/tq?${new URLSearchParams({ tqx: "out:csv", sheet: sheetName }).toString()}`;
 }
 
-async function fetchCsv(url: string): Promise<string | null> {
+export async function fetchCsv(url: string): Promise<string | null> {
   try {
     const res = await fetch(url, { next: { revalidate: 300 } });
     if (!res.ok) return null;
@@ -62,6 +62,7 @@ export interface RosterEntry {
   kodeFasil: string;
   namaFasil: string;
   kendala: Partial<Record<keyof FacilRow, string>>;
+  urlLK: string;
 }
 
 let rosterCache: { at: number; entries: RosterEntry[] } | null = null;
@@ -99,7 +100,9 @@ export async function getRosterEntries(): Promise<RosterEntry[]> {
           const value = (row[k.header] ?? "").trim();
           if (value) kendala[k.kolom] = value;
         }
-        entries.push({ atmin: (row["Atmin"] ?? "").trim(), kodeFasil, namaFasil, kendala });
+        
+        const urlLK = (row["LK_LOG"] ?? row["LK Log"] ?? row["URL LK"] ?? row["Link LK"] ?? row["LK_Log"] ?? "").trim();
+        entries.push({ atmin: (row["Atmin"] ?? "").trim(), kodeFasil, namaFasil, kendala, urlLK });
       }
 
       rosterCache = { at: Date.now(), entries };
@@ -276,9 +279,26 @@ export function buildFacilRowFromMasterLog(parsed: ParsedMasterLogRow, roster: R
   // mengasumsikan skala 0-100 tetap konsisten.
   const rawRecord: Record<string, string> = {};
   SKOR_AKHIR_COLUMNS.forEach((col, i) => {
-    const raw = parsed.values[i];
-    const frac = raw != null && raw !== "" ? parseFloat(raw) : NaN;
-    rawRecord[col.header] = Number.isNaN(frac) ? "" : String(frac * 100);
+    let raw = parsed.values[i];
+    if (raw != null && raw !== "") {
+      const isPercentStr = raw.includes("%");
+      if (isPercentStr) {
+        raw = raw.replace("%", "");
+      }
+      let val = parseFloat(raw);
+      if (!Number.isNaN(val)) {
+        if (!isPercentStr && val <= 1 && val !== 0) {
+          val = val * 100;
+        } else if (!isPercentStr && val === 0) {
+          val = 0;
+        }
+        rawRecord[col.header] = String(val);
+      } else {
+        rawRecord[col.header] = "";
+      }
+    } else {
+      rawRecord[col.header] = "";
+    }
   });
   row.raw = rawRecord;
   Object.assign(row, applySkorAkhirColumns(rawRecord));
