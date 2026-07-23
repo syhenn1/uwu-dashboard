@@ -13,9 +13,11 @@ function getActiveWindow() {
   const m = now.getUTCMinutes();
   const mins = h * 60 + m;
   
-  if (mins >= 7 * 60 && mins < 11 * 60 + 30) return 1;
-  if (mins >= 13 * 60 + 30 && mins < 17 * 60 + 30) return 2;
-  return null;
+  // Log 1: 06:00 WIB sampai 13:29 WIB
+  if (mins >= 6 * 60 && mins < 13 * 60 + 30) return 1;
+  
+  // Log 2: 13:30 WIB sampai 05:59 WIB keesokan harinya
+  return 2;
 }
 
 
@@ -43,7 +45,14 @@ export async function GET(request: Request) {
     const limitParam = urlParams.get('limit');
     
     // 3. Ambil Roster & Hari
-    const hariKe = forceHari ? parseInt(forceHari, 10) : await getTodayHari();
+    const nowForHari = new Date();
+    const wibHoursHari = (nowForHari.getUTCHours() + 7) % 24;
+    // Jika sebelum jam 06:00 pagi WIB, kita masih anggap sebagai hari kemarin
+    // supaya Log 2 (yang ditarik sampai jam 6 pagi) tersimpan di "Hari ke-" yang benar.
+    if (wibHoursHari < 6) {
+      nowForHari.setDate(nowForHari.getDate() - 1);
+    }
+    const hariKe = forceHari ? parseInt(forceHari, 10) : await getTodayHari(nowForHari);
     const fullRoster = await getRosterEntries();
     
     // Terapkan chunking jika ada offset/limit
